@@ -36,6 +36,21 @@ class ScriptedProvider(BaseProvider):
         self.i += 1
 
 
+class MockSearchProvider:
+    """Search provider that returns canned results without network."""
+
+    name = "mock_search"
+
+    def search(self, query: str, max_results: int = 5):
+        return [
+            {
+                "title": f"Result for: {query}",
+                "url": f"https://example.com/{query.replace(' ', '-')}",
+                "snippet": f"This is a mock result for '{query}'.",
+            }
+        ][:max_results]
+
+
 def build_agent(
     responses,
     mode: Mode = Mode.AUTO,
@@ -47,7 +62,11 @@ def build_agent(
     provider = ScriptedProvider(responses)
     todo_store = TodoStore() if with_todo else None
     perms = PermissionManager(mode=mode)
-    tools = default_tools(todo_store=todo_store, permissions=perms)
+    tools = default_tools(
+        todo_store=todo_store,
+        permissions=perms,
+        search_provider=MockSearchProvider(),
+    )
     compactor = (
         Compactor(threshold_tokens=compact_threshold) if with_compactor else None
     )

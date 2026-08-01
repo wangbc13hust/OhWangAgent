@@ -57,3 +57,20 @@ class Renderer:
             console=self.console,
         )
         return {"y": "allow", "a": "always"}.get(answer, "deny")
+
+    def ask_question(self, question: str, options: list) -> str:
+        """Interactive question for AskUserQuestionTool."""
+        self._flush()
+        self.console.print(f"\n[bold cyan]? {question}[/bold cyan]", highlight=False)
+        for i, opt in enumerate(options, 1):
+            label = opt.get("label", "") if isinstance(opt, dict) else str(opt)
+            desc = opt.get("description", "") if isinstance(opt, dict) else ""
+            line = f"  [{i}] {label}"
+            if desc:
+                line += f" — {desc}"
+            self.console.print(line, highlight=False)
+        choice = Prompt.ask(
+            "Select option",
+            console=self.console,
+        )
+        return choice.strip()

@@ -5,22 +5,30 @@ from dataclasses import dataclass
 
 
 PROVIDER_PRESETS = {
+    "zhipu": {
+        "env": "ZHIPU_API_KEY",
+        "default_model": "glm-5.2",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4/",
+    },
     "anthropic": {
         "env": "ANTHROPIC_API_KEY",
         "default_model": "claude-sonnet-4-5-20250929",
+        "base_url": None,
     },
     "openai": {
         "env": "OPENAI_API_KEY",
         "default_model": "gpt-4o",
+        "base_url": None,
     },
 }
 
 
 @dataclass
 class Config:
-    provider: str = "anthropic"
+    provider: str = "zhipu"
     model: str = ""
     api_key: str = ""
+    base_url: str = ""
     max_tokens: int = 8192
     auto_approve: bool = False
     plan: bool = False
@@ -34,4 +42,6 @@ class Config:
         if not self.api_key:
             env_var = preset.get("env", "")
             self.api_key = os.environ.get(env_var, "")
+        if not self.base_url:
+            self.base_url = preset.get("base_url") or ""
         return self

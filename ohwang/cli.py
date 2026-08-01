@@ -21,7 +21,7 @@ def parse_args(argv=None) -> argparse.Namespace:
         prog="ohwang",
         description="OhWangAgent — a Claude-Code-style coding agent.",
     )
-    p.add_argument("--provider", choices=list(PROVIDER_PRESETS), default="anthropic")
+    p.add_argument("--provider", choices=list(PROVIDER_PRESETS), default="zhipu")
     p.add_argument("--model", default=None, help="Model id (overrides preset)")
     p.add_argument("--api-key", default=None, help="API key (else read from env)")
     p.add_argument(
@@ -46,6 +46,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="Token estimate threshold to trigger context compaction",
     )
     p.add_argument("--workdir", default=None, help="Working directory")
+    p.add_argument(
+        "--no-mcp",
+        action="store_true",
+        help="Do not load MCP servers from .ohwang/mcp.json",
+    )
     p.add_argument(
         "prompt", nargs="?", default=None, help="Run one prompt then exit (non-REPL)"
     )
@@ -81,7 +86,29 @@ def build_agent(args: argparse.Namespace):
 
     permissions = PermissionManager(mode=mode, ask_callback=renderer.ask)
     todo_store = TodoStore()
-    tools = default_tools(todo_store=todo_store, permissions=permissions)
+
+    def _agent_factory():
+        return Agent(
+            provider,
+            default_tools(todo_store=todo_store, permissions=permissions),
+            PermissionManager(mode=Mode.AUTO),
+            config,
+            SYSTEM_PROMPT,
+        )
+
+    tools = default_tools(
+        todo_store=todo_store,
+        permissions=permissions,
+        ask_callback=renderer.ask_question if hasattr(renderer, "ask_question") else None,
+        agent_factory=_agent_factory,
+    )
+
+    if not args.no_mcp:
+        from .services.mcp import load_mcp_tools
+        added = load_mcp_tools(config.workdir, tools)
+        if added:
+            renderer.info(f"Loaded {len(added)} MCP tool(s): {', '.join(added)}")
+
     compactor = Compactor(threshold_tokens=config.compact_threshold)
     session_store = SessionStore(config.workdir)
 
