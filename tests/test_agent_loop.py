@@ -119,6 +119,89 @@ def test_effective_system_without_memory():
     assert agent._effective_system() == build_system_prompt(workdir)
 
 
+class ReactiveProvider(BaseProvider):
+    """Call 1 raises prompt-too-long; call 2 is the compact summary call;
+    call 3 is the retried main chat."""
+
+    name = "reactive"
+
+    def __init__(self) -> None:
+        super().__init__("fake-key", "reactive-model")
+        self.calls = 0
+
+    def chat(self, system, messages, tools, max_tokens):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError(
+                "API request failed: prompt is too long (max 1000 tokens)"
+            )
+            yield  # noqa
+        if self.calls == 2:
+            yield {"type": "text", "text": "SUMMARY: earlier work"}
+        else:
+            yield {"type": "text", "text": "Recovered after compaction."}
+
+
+def test_reactive_compact_retries_on_ptl():
+    from ohwang.services.compact import Compactor
+
+    workdir = tempfile.mkdtemp()
+    config = Config(workdir=workdir, auto_approve=True).resolve()
+    provider = ReactiveProvider()
+    compactor = Compactor(threshold_tokens=1_000_000, keep_recent=2, max_tokens=64)
+    agent = Agent(
+        provider, default_tools(), PermissionManager(auto_approve=True),
+        config, build_system_prompt(workdir), compactor=compactor,
+    )
+    # pre-seed enough history that compact() actually summarizes old messages
+    agent.messages = [
+        {"role": "user", "content": [{"type": "text", "text": "task start"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "doing work"}]},
+        {"role": "user", "content": [{"type": "text", "text": "context"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "result"}]},
+    ]
+
+    final = agent.run("continue now")
+    assert provider.calls == 3
+    assert "Recovered after compaction" in final
+    texts = " ".join(
+        b.get("text", "")
+        for m in agent.messages
+        for b in (m["content"] if isinstance(m.get("content"), list) else [])
+        if b.get("type") == "text"
+    )
+    assert "SUMMARY" in texts
+
+
+def test_reactive_raises_on_non_ptl():
+    import pytest
+    from ohwang.services.compact import Compactor
+
+    class BoomProvider(BaseProvider):
+        name = "boom"
+
+        def __init__(self) -> None:
+            super().__init__("k", "m")
+            self.calls = 0
+
+        def chat(self, system, messages, tools, max_tokens):
+            self.calls += 1
+            raise RuntimeError("rate limit exceeded")
+            yield  # noqa
+
+    workdir = tempfile.mkdtemp()
+    config = Config(workdir=workdir, auto_approve=True).resolve()
+    provider = BoomProvider()
+    compactor = Compactor(threshold_tokens=1_000_000, keep_recent=2, max_tokens=64)
+    agent = Agent(
+        provider, default_tools(), PermissionManager(auto_approve=True),
+        config, build_system_prompt(workdir), compactor=compactor,
+    )
+    with pytest.raises(RuntimeError, match="rate limit"):
+        agent.run("hi")
+    assert provider.calls == 1  # non-PTL errors are not retried
+
+
 if __name__ == "__main__":
     test_agent_loop()
     test_effective_system_injects_memory_context()

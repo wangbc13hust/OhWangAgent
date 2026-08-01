@@ -105,7 +105,8 @@ ohwang/
 │   └── lsp_diagnose.py    lsp_diagnose（经 load_lsp_tools() 注册，读取 .ohwang/lsp.json）
 │
 ├── services/             横切服务
-│   ├── compact.py         上下文压缩（token 阈值）
+│   ├── window.py          上下文窗口解析（env OHWANG_MAX_CONTEXT_TOKENS > config > preset > 默认）
+│   ├── compact.py         上下文压缩（阈值由窗口派生）、reactive 压缩辅助、熔断硬裁、microcompact
 │   ├── tokens.py          token 估算（CJK 按 ~1 字符/token）
 │   ├── session.py         会话保存/resume（.ohwang/sessions/）
 │   ├── summarizer.py      会话摘要蒸馏（/save 时生成，复用 Compactor 序列化）
@@ -139,11 +140,17 @@ ohwang/
 `Agent.run(user_input, on_text, on_tool_call, on_tool_result, on_compact)`：
 
 1. 追加 `user` 消息。
-2. 达到 `compact_threshold` 时用 `Compactor` 压缩历史。
-3. `provider.chat(system, messages, tools, max_tokens)` 产出事件流：
+2. 每回合先 `microcompact()` 裁剪超限（>30K 字符）tool_result 为
+   `[Old tool result content cleared (was N chars)]`，防巨型工具输出拖垮上下文。
+3. 达到压缩阈值时用 `Compactor` 压缩历史；阈值默认由模型上下文窗口派生
+   （`window − 20K 输出余量 − 13K 缓冲`，下限 4K），`--compact-threshold` 显式值优先。
+   摘要连续 3 次失败触发熔断 → 放弃摘要、硬裁旧消息（snip）。
+4. `provider.chat(system, messages, tools, max_tokens)` 产出事件流：
    - `text` → 追加到正文并流式渲染；
    - `tool_use` → 收集。
-4. 有 `tool_use` 则每条经 `_run_tool()` 执行（见下），结果组装为一条
+   **Reactive 压缩**：若 API 抛 "prompt too long" 类错误，当回合内 `compact()` 摘要
+   旧消息后重试同一次 chat（至多一次，镜像 Claude Code withheld-413 路径）。
+5. 有 `tool_use` 则每条经 `_run_tool()` 执行（见下），结果组装为一条
    `user` 消息回灌；无 `tool_use` 即结束。
 5. `_run_tool()` 调用链：**hook(pre) → 权限 → policy → 执行 → 统计/后置钩子**，
    工具抛异常兜底为 `is_error` 结果块而非让循环崩溃。
@@ -157,7 +164,9 @@ ohwang/
   `{"type": "text"|"tool_use", ...}`；基类持有 `usage_prompt/completion/calls`
   计数器与 `usage_report()`，供 `/summary` 展示。
 - `AnthropicProvider`：Anthropic 原生 tool_use 协议直通，从 `message_start`/
-  `message_delta` 归账 token。
+  `message_delta` 归账 token；默认开启 prompt caching（`system` 转 block 列表挂
+  `cache_control`，末条消息末 content block 加断点，浅拷贝不污染调用方），
+  `DISABLE_PROMPT_CACHING=1` 可关。DeepSeek/OpenAI 服务端自动缓存，无需客户端改动。
 - `OpenAIProvider`：把 tool_use 事件 ↔ OpenAI function-calling 转换，流式增量按
   index 累积，`stream_options.include_usage` 归账 token，因此任何 OpenAI 兼容
   端点（DeepSeek/Kimi/Qwen/智谱/本地模型）都可直接接入。
@@ -213,7 +222,7 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 | `HookManager` | pre/post tool + notif 生命周期钩子 | `.ohwang/hooks.json` 命令钩子 |
 | `PolicyLimits` | 工具调用总量/单工具上限，防失控循环；总量默认 200，**被权限拒绝的调用也计入预算**（防拒绝后无限重试） | `.ohwang/policy.json` |
 | `UsageTracker` | 工具调用统计（`/summary`、brief 工具） | 内存 |
-| `Compactor` | 超阈值上下文压缩 | — |
+| `Compactor` | 上下文压缩：阈值由 `context_window` 派生（显式 `threshold_tokens` 优先）；熔断（连续 3 次摘要失败 → snip 硬裁）；`is_prompt_too_long_error` 识别 PTL；`microcompact` 裁剪超限工具结果 | 阈值派生自 `services/window.py` |
 | `SessionStore` | 会话保存/resume（`save` 可带 `summary`；`/save` 经 `SessionSummarizer` 蒸馏简报，`/resume` 注入为 `# Session Context` 块） | `.ohwang/sessions/*.json` |
 | `Scheduler` | cron 调度，agent 空闲时可后台执行任务；**state_file 持久化，重启不丢** | `.ohwang/cron.json` |
 | `MCPClient` | 外部 MCP 服务器工具 | `.ohwang/mcp.json` |
@@ -224,8 +233,10 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 
 ### 3.6 配置与开关
 
-- `config.py::Config`：provider/model/api_key/max_tokens/工作目录等，`resolve()`
-  用环境变量补齐。
+- `config.py::Config`：provider/model/api_key/max_tokens/工作目录/`context_window`/
+  `compact_threshold` 等，`resolve()` 用环境变量补齐、并从 preset 填充 `context_window`
+  （zhipu/openai/deepseek 128K、anthropic 200K、kimi 8K、qwen 32K）；`--context-window`
+  与 `OHWANG_MAX_CONTEXT_TOKENS` 可覆盖。
 - `flags.py::FeatureFlags`：三级覆盖 `OHWANG_FEATURE_<NAME>` env →
   `.ohwang/flags.json` → 内置默认。默认开启 web_fetch/web_search/web_browser/
   ask_user/agent_tool/mcp/skill/memory/todo/plan_mode/session/worktree/

@@ -25,6 +25,7 @@ from .services import (
 )
 from .services.scheduler import Scheduler
 from .services.settings import load_settings
+from .services.window import effective_context_window
 from .tools import default_tools
 from .tools.tasks import TaskStore
 from .tools.todo import TodoStore
@@ -123,8 +124,16 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument(
         "--compact-threshold",
         type=int,
-        default=100_000,
-        help="Token estimate threshold to trigger context compaction",
+        default=None,
+        help="Token estimate threshold to trigger context compaction "
+        "(default: derived from the model's context window)",
+    )
+    p.add_argument(
+        "--context-window",
+        type=int,
+        default=None,
+        help="Model context window in tokens (default: provider preset; "
+        "overridable via OHWANG_MAX_CONTEXT_TOKENS)",
     )
     p.add_argument("--workdir", default=None, help="Working directory")
     p.add_argument(
@@ -153,6 +162,7 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
         plan=args.plan,
         compact_threshold=args.compact_threshold,
         workdir=os.path.abspath(args.workdir or os.getcwd()),
+        context_window=getattr(args, "context_window", None),
     ).resolve()
 
     if not config.api_key:
@@ -287,7 +297,10 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
                 "Web browser tool disabled: install playwright + `playwright install chromium`."
             )
 
-    compactor = Compactor(threshold_tokens=config.compact_threshold)
+    compactor = Compactor(
+        threshold_tokens=config.compact_threshold,
+        context_window=effective_context_window(config),
+    )
     session_store = SessionStore(config.workdir)
 
     hooks = HookManager(config.workdir)

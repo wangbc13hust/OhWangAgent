@@ -504,3 +504,62 @@ def test_anthropic_provider_records_usage(monkeypatch):
     assert rep["calls"] == 1
     assert rep["prompt_tokens"] == 11
     assert rep["completion_tokens"] == 7
+
+
+def _capture_fake_anthropic(captured, monkeypatch):
+    import ohwang.providers.anthropic_provider as mod
+
+    class _Stream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return None
+
+        def __iter__(self):
+            return iter([])
+
+    class _Ctx:
+        def stream(self, **kwargs):
+            captured.update(kwargs)
+            return _Stream()
+
+    class _FakeAnthropic:
+        def __init__(self, **kw):
+            self.messages = _Ctx()
+
+    monkeypatch.setattr(mod.anthropic, "Anthropic", _FakeAnthropic)
+    return AnthropicProvider("k", "m")
+
+
+def test_anthropic_system_blocks_with_cache_control(monkeypatch):
+    monkeypatch.delenv("DISABLE_PROMPT_CACHING", raising=False)
+    captured: dict = {}
+    p = _capture_fake_anthropic(captured, monkeypatch)
+
+    msgs = [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
+    list(p.chat("sys", msgs, [], 100))
+
+    system = captured["system"]
+    assert isinstance(system, list)
+    assert system[0]["text"] == "sys"
+    assert system[0]["cache_control"] == {"type": "ephemeral"}
+
+    sent = captured["messages"]
+    assert sent[-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+    # caller's dicts are not mutated by the breakpoint copy
+    assert "cache_control" not in msgs[0]["content"][0]
+    assert sent is not msgs
+
+
+def test_anthropic_caching_disabled_env(monkeypatch):
+    monkeypatch.setenv("DISABLE_PROMPT_CACHING", "1")
+    captured: dict = {}
+    p = _capture_fake_anthropic(captured, monkeypatch)
+
+    msgs = [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
+    list(p.chat("sys", msgs, [], 100))
+
+    assert captured["system"] == "sys"          # plain string, no blocks
+    assert captured["messages"] is msgs          # untouched, no breakpoint
+    assert "cache_control" not in captured["messages"][0]["content"][0]

@@ -1,11 +1,51 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Iterator
 
 import anthropic
 
 from .base import BaseProvider
+
+
+def _cache_enabled() -> bool:
+    # Prompt caching is on by default for Anthropic; set DISABLE_PROMPT_CACHING
+    # to opt out (mirrors Claude Code's per-model DISABLE_PROMPT_CACHING_* envs).
+    return not os.environ.get("DISABLE_PROMPT_CACHING")
+
+
+def _system_blocks(system: str) -> list[dict]:
+    """Build the system argument as a cacheable text block (Anthropic SDK
+    accepts a str OR a list of blocks; the latter lets us attach cache_control).
+    """
+    return [
+        {
+            "type": "text",
+            "text": system,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+
+def _with_cache_breakpoint(messages: list[dict]) -> list[dict]:
+    """Return messages with cache_control on the last content block of the
+    last message, without mutating the caller's dicts. Mirrors Claude Code's
+    addCacheBreakpoints(): one breakpoint per request so the whole prefix up to
+    the final message is cached.
+    """
+    if not messages:
+        return messages
+    last = messages[-1]
+    content = last.get("content")
+    if not isinstance(content, list) or not content:
+        return messages
+    copied = dict(last)
+    blocks = list(content)
+    copied["content"] = blocks
+    blocks[-1] = dict(blocks[-1])
+    blocks[-1]["cache_control"] = {"type": "ephemeral"}
+    return messages[:-1] + [copied]
 
 
 class AnthropicProvider(BaseProvider):
@@ -28,10 +68,11 @@ class AnthropicProvider(BaseProvider):
         tools: list[dict],
         max_tokens: int,
     ) -> Iterator[dict]:
+        caching = _cache_enabled()
         kwargs = {
             "model": self.model,
-            "system": system,
-            "messages": messages,
+            "system": _system_blocks(system) if caching else system,
+            "messages": _with_cache_breakpoint(messages) if caching else messages,
             "max_tokens": max_tokens,
         }
         if tools:

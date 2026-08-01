@@ -1,11 +1,44 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497 → 515（全绿）。
 
 ---
 
 ## 2026-08-02
+
+### 上下文系统架构优化（镜像 Claude Code）
+
+修复 **P0 缺陷**：`compact_threshold=100_000` 硬编码与模型窗口无关——主 provider
+DeepSeek（64K/128K 窗口）上 100K 阈值使 `should_compact` 永不触发，还没到阈值
+API 就先 413 崩溃。对照 Claude Code 参考架构补齐：
+
+- **窗口感知**：`PROVIDER_PRESETS` 各加 `context_window`（zhipu/openai/deepseek
+  128K、anthropic 200K、kimi 8K、qwen 32K）；新 `services/window.py` 解析优先级
+  `OHWANG_MAX_CONTEXT_TOKENS` env > `--context-window` > preset > 默认 128K。压缩
+  阈值默认由窗口派生（`window − 20K 输出余量 − 13K 缓冲`，下限 4K），`--compact-threshold`
+  显式值优先。kimi-8k 上阈值 4K，避免 8K 窗口永不压缩。
+- **Reactive 压缩**（镜像 withheld-413 路径）：`agent.run()` 把 `provider.chat` 包进
+  try/except，`is_prompt_too_long_error` 关键词识别 PTL 错误 → 当回合内 `compact()`
+  摘要旧消息后重试同一次 chat（至多一次，`_reactive_retried` + 消息未缩小双保险）。
+  此前 PTL 直接令整个 run 崩溃。
+- **熔断 + snip 兜底**（镜像 `MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES=3`）：摘要连续
+  3 次失败 → 放弃摘要、硬裁 keep_recent 之前的旧消息，保证前进；成功/硬裁后计数器清零。
+- **Microcompact**（镜像 `microCompact.ts`）：每回合裁剪 >30K 字符的 tool_result 为
+  `[Old tool result content cleared (was N chars)]`，不删消息——巨型文件读取/命令
+  输出不再原样拖垮上下文。
+- **Anthropic prompt caching**（镜像 `getCacheControl`/`addCacheBreakpoints`）：
+  `system` 转 block 列表挂 `cache_control`，末条消息末 content block 加断点（浅拷贝
+  不污染调用方）；`DISABLE_PROMPT_CACHING=1` 可关。DeepSeek/OpenAI 服务端自动缓存。
+
+**明确搁置**（文档记录）：context collapse 多级摘要链、`+500k` token budget 续跑、
+post-compact 文件/技能重挂、`count_tokens` 精确计数锚定（启发式 + 13K 缓冲已够）。
+
+### 测试
+
+515 个测试全绿（本轮 +18：窗口解析 4、窗口派生阈值/钳制/熔断硬裁/熔断重置/PTL
+识别 5、microcompact 4、reactive 重试/非 PTL 不重试 2、anthropic caching 启用/禁用 2，
+另有 1 个无窗口回落默认）。
 
 ### 分层记忆系统（全局/项目/会话 + 相关性注入）
 

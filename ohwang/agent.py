@@ -6,7 +6,7 @@ from typing import Callable, Optional
 from .config import Config
 from .permissions import PermissionManager
 from .providers.base import BaseProvider
-from .services.compact import Compactor
+from .services.compact import Compactor, is_prompt_too_long_error, microcompact
 from .tools.base import ToolResult
 from .tools.registry import ToolRegistry
 from .tools.todo import TodoStore
@@ -113,6 +113,10 @@ class Agent:
         for _ in range(max_iterations):
             self.iterations += 1
 
+            # Trim oversized tool results every turn so a giant file read or
+            # command dump cannot silently bloat the context (microCompact).
+            microcompact(self.messages)
+
             if self.compactor is not None and self.compactor.should_compact(self.messages):
                 before = len(self.messages)
                 self.messages = self.compactor.compact(
@@ -124,24 +128,51 @@ class Agent:
             text_parts: list[str] = []
             tool_uses: list[dict] = []
 
-            for event in self.provider.chat(
-                system=self._effective_system(),
-                messages=self.messages,
-                tools=self.tools.specs(),
-                max_tokens=self.config.max_tokens,
-            ):
-                etype = event.get("type")
-                if etype == "text":
-                    text_parts.append(event["text"])
-                    if on_text:
-                        try:
-                            on_text(event["text"])
-                        except Exception as exc:
-                            sys.stderr.write(
-                                f"[renderer] on_text error: {type(exc).__name__}: {exc}\n"
-                            )
-                elif etype == "tool_use":
-                    tool_uses.append(event)
+            # Reactive compact (mirror of Claude Code's withheld-413 path): if
+            # the API rejects the request as too long, summarize old messages
+            # and retry the SAME turn once instead of crashing the run.
+            reactive_retried = False
+            while True:
+                try:
+                    for event in self.provider.chat(
+                        system=self._effective_system(),
+                        messages=self.messages,
+                        tools=self.tools.specs(),
+                        max_tokens=self.config.max_tokens,
+                    ):
+                        etype = event.get("type")
+                        if etype == "text":
+                            text_parts.append(event["text"])
+                            if on_text:
+                                try:
+                                    on_text(event["text"])
+                                except Exception as exc:
+                                    sys.stderr.write(
+                                        f"[renderer] on_text error: {type(exc).__name__}: {exc}\n"
+                                    )
+                        elif etype == "tool_use":
+                            tool_uses.append(event)
+                    break
+                except RuntimeError as exc:
+                    if (
+                        self.compactor is not None
+                        and is_prompt_too_long_error(exc)
+                        and not reactive_retried
+                    ):
+                        reactive_retried = True
+                        before = len(self.messages)
+                        self.messages = self.compactor.compact(
+                            self.messages, self.provider, self._effective_system()
+                        )
+                        self._invalidate_system()
+                        if on_compact:
+                            on_compact(before, len(self.messages))
+                        if len(self.messages) >= before:
+                            # Compaction did not shrink the conversation; a
+                            # retry would only repeat the same error.
+                            raise
+                        continue
+                    raise
 
             full_text = "".join(text_parts)
             if full_text.strip():
