@@ -1,13 +1,24 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250（全绿）。
 
 ---
 
 ## 2026-08-01
 
-### 代码审查（本轮）
+### Skill 系统建设（P4，Claude Code 风格）
+
+| 提交 | 内容 |
+| :--- | :--- |
+| — | **Skill 从死代码到系统级能力**：`SkillTool`/`SkillLoader` 此前有实现但从未注册。现已接线：`default_tools(skill_loader=...)` 注册 `skill` 工具；cli 创建 `SkillLoader` 并加载；`/skills` 命令列出可用 skill |
+| — | **SKILL.md 目录格式**：bundled skills 从 `<name>.json` 迁移为 `<name>/SKILL.md`（YAML frontmatter：`name`/`description`/`allowed-tools` + markdown 指令），对齐 Claude Code 规范；`SkillLoader` 内建轻量 frontmatter 解析器（标量/行内列表/块序列，无需 PyYAML） |
+| — | **JSON 兼容保留**：`.ohwang/skills/<name>.json` 仍受支持；用户自定义新增 `<name>/SKILL.md` 目录格式；用户 skill 同名覆盖 bundled |
+| — | **系统提示注入**：`build_system_prompt(workdir, skills=...)` 新增 skills 段；cli 将 `describe_all()`（`- name: description` 列表）注入 system prompt，agent 依据描述自动决定何时调用 skill |
+
+### 测试
+
+250 个测试全绿（本轮 +6：frontmatter 解析/缺失、SKILL.md 用户 skill 加载、describe_all、系统提示注入/无 skills）。
 
 | 提交 | 内容 |
 | :--- | :--- |

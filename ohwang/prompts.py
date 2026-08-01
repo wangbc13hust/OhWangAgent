@@ -2,6 +2,15 @@ from __future__ import annotations
 
 import os
 
+SKILLS_SECTION_TEMPLATE = """
+Available skills
+----------------
+{skills}
+
+Skills are invoked through the `skill` tool. Use them when a task matches a
+skill's description.
+"""
+
 SYSTEM_PROMPT_TEMPLATE = """You are OhWangAgent, an interactive CLI office agent.
 
 You help with everyday office and software work: writing and organizing
@@ -26,5 +35,10 @@ approval. Use the smallest set of tool calls that gets the job done.
 SUMMARY_PROMPT = "Summarize the conversation so far in compact bullet points, preserving key decisions, file paths, and pending tasks."
 
 
-def build_system_prompt(workdir: str | None = None) -> str:
-    return SYSTEM_PROMPT_TEMPLATE.format(workdir=workdir or os.getcwd())
+def build_system_prompt(
+    workdir: str | None = None, skills: list[str] | None = None
+) -> str:
+    prompt = SYSTEM_PROMPT_TEMPLATE.format(workdir=workdir or os.getcwd())
+    if skills:
+        prompt += SKILLS_SECTION_TEMPLATE.format(skills="\n".join(skills))
+    return prompt

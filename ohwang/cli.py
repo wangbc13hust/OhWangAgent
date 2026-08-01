@@ -116,8 +116,16 @@ def build_agent(args: argparse.Namespace):
     memory_extractor = (
         MemoryExtractor(memory_store) if flags.is_enabled("memory") else None
     )
+    skill_loader = None
+    if flags.is_enabled("skill"):
+        from .skills.loader import SkillLoader
+        skill_loader = SkillLoader(config.workdir)
+        skill_loader.load_all()
 
-    system_prompt = build_system_prompt(config.workdir)
+    system_prompt = build_system_prompt(
+        config.workdir,
+        skills=skill_loader.describe_all() if skill_loader is not None else None,
+    )
 
     run_lock = Lock()
     scheduler = Scheduler(runner=None)
@@ -147,6 +155,7 @@ def build_agent(args: argparse.Namespace):
                 todo_store=todo_store,
                 permissions=permissions,
                 memory_store=memory_store,
+                skill_loader=skill_loader,
             ),
             PermissionManager(mode=Mode.AUTO),
             config,
@@ -166,6 +175,7 @@ def build_agent(args: argparse.Namespace):
         display_callback=lambda text: renderer.console.print(text, highlight=False),
         iterations_getter=lambda: agent.iterations,
         memory_store=memory_store,
+        skill_loader=skill_loader,
     )
 
     if not args.no_mcp:
@@ -216,7 +226,7 @@ def build_agent(args: argparse.Namespace):
         usage=usage,
         memory_store=memory_store,
     )
-    return agent, renderer, config, session_store, scheduler, memory_extractor, flags
+    return agent, renderer, config, session_store, scheduler, memory_extractor, skill_loader, flags
 
 
 def _run_once(
@@ -300,6 +310,7 @@ def repl(
     run_lock: Lock,
     one_shot: str | None,
     memory_extractor=None,
+    skill_loader=None,
 ) -> None:
     renderer.info(f"OhWangAgent — provider={config.provider} model={config.model} mode={agent.permissions.mode.label}")
     renderer.info("Type /help for commands, /exit to quit.")
@@ -355,9 +366,19 @@ def repl(
             renderer.info(agent.usage.report() if agent.usage else "Usage tracking off.")
             renderer.info(f"Iterations: {agent.iterations}  Messages: {len(agent.messages)}")
             continue
+        if line == "/skills":
+            if skill_loader is None:
+                renderer.info("Skills disabled (feature flag 'skill' is off).")
+            else:
+                names = skill_loader.list_names() or []
+                if not names:
+                    renderer.info("No skills available.")
+                else:
+                    renderer.info("Available skills: " + ", ".join(sorted(names)))
+            continue
         if line == "/help":
             renderer.info(
-                "Commands: /help /tools /flags /cron [/cron <id> '<expr>' '<prompt>'] "
+                "Commands: /help /tools /flags /skills /cron [/cron <id> '<expr>' '<prompt>'] "
                 "/worktree /summary /clear /auto /mode /model <id> /todo /save /resume /exit"
             )
             continue

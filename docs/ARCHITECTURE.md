@@ -110,7 +110,7 @@ ohwang/
 │   ├── policy.py          PolicyLimits（调用上限）
 │   └── summary.py         UsageTracker（工具调用统计）
 │
-├── skills/               Skill 加载器（.ohwang/skills/）
+├── skills/               Skill 加载器（.ohwang/skills/，SKILL.md 目录格式 + JSON 兼容）
 ├── plugins/              Plugin 加载器（.ohwang/plugins/）
 └── tui/
     ├── render.py         Renderer（Rich）+ setup_utf8（Windows 控制台编码）
@@ -213,7 +213,7 @@ ohwang/
 | `memory/facts.json` | 自动/手动记忆事实 |
 | `sessions/*.json` | 会话历史 |
 | `snips/*.txt` | snip 工具保存的输出片段 |
-| `skills/` `plugins/` | Skill / Plugin 定义 |
+| `skills/` | Skill 定义：`<name>/SKILL.md`（YAML frontmatter + markdown）或 `<name>.json` |
 | `mcp.json` | MCP 服务器列表 |
 
 ---
@@ -230,7 +230,7 @@ ohwang/
 
 ---
 
-## 6. 测试架构（`tests/`，222 个）
+## 6. 测试架构（`tests/`，250 个）
 
 - `helpers.py`：`ScriptedProvider`（重放事件序列）、`MockSearchProvider`、
   `build_agent()`——无网络、无真实模型的集成测试基座。
@@ -247,6 +247,9 @@ ohwang/
   且 `Agent._effective_system()` 注入项目记忆上下文（CLAUDE.md/AGENTS.md + facts）。
 - lsp_diagnose 已接线：cli 在 `lsp` 特性开启时经 `load_lsp_tools()` 读取 `.ohwang/lsp.json`
   注册工具；特性默认关闭（`flags.py` 默认 `lsp: False`）。
+- Skill 系统已接线：`default_tools(skill_loader=...)` 注册 `skill` 工具，`build_system_prompt`
+  将 `describe_all()` 注入 system prompt，agent 依据描述自动决定何时调用；用户自定义
+  skill 支持 `<name>/SKILL.md`（YAML frontmatter + markdown）与 `<name>.json` 两种格式。
 - Textual TUI（`tui/widgets/app.py`）为实验性，正式入口仍用 Rich REPL。
 - 路线图 P3-D（Task v2 / VerifyPlanExecution）与 P4（平台化）待实现，
   详见 `docs/ROADMAP.md`。

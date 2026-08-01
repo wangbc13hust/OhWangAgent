@@ -19,6 +19,7 @@ def default_tools(
     display_callback=None,
     iterations_getter=None,
     memory_store=None,
+    skill_loader=None,
 ) -> ToolRegistry:
     """Build a registry with the core coding tools + extensions.
 
@@ -35,6 +36,7 @@ def default_tools(
       display_callback — callable(str) for synthetic_output
       iterations_getter — callable() -> int for the brief tool
       memory_store    — enables memory_read/memory_write tools
+      skill_loader    — enables the skill tool
     """
     from .bash import BashTool
     from .file_edit import FileEditTool
@@ -88,6 +90,10 @@ def default_tools(
         from .memory import MemoryReadTool, MemoryWriteTool
         registry.register(MemoryReadTool(memory_store))
         registry.register(MemoryWriteTool(memory_store))
+
+    if skill_loader is not None:
+        from ..skills.tool import SkillTool
+        registry.register(SkillTool(skill_loader))
 
     if permissions is not None:
         from .plan_mode import EnterPlanModeTool, ExitPlanModeTool
