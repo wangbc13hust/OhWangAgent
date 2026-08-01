@@ -9,6 +9,9 @@ _MEMORY_EXTRACTION_PROMPT = """You are a memory extraction service. Analyze the 
 extract up to 10 durable facts worth remembering across sessions. Focus on:
 project decisions, conventions, user preferences, key parameters, and gotchas.
 Do NOT include one-off, trivial, or already-known facts.
+Explicitly EXCLUDE ephemeral content from a single session: meeting recaps,
+raw data/figures from one extraction, one-off task details, or anything that
+will not matter in future sessions. When in doubt, do not save it.
 Return ONLY a JSON array, no markdown, no commentary:
 [{"key": "short_snake_key", "value": "one sentence fact", "tags": ["decision"]}]
 If nothing is worth saving, return [].
@@ -194,7 +197,7 @@ class MemoryExtractor:
     `growth_threshold` messages since the last extraction.
     """
 
-    def __init__(self, store: MemoryStore, growth_threshold: int = 10) -> None:
+    def __init__(self, store: MemoryStore, growth_threshold: int = 20) -> None:
         self._store = store
         self._growth_threshold = growth_threshold
         self._last_count = 0

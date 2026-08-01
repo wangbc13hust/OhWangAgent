@@ -185,6 +185,10 @@ class Agent:
                 }
 
         if not self.permissions.can_run(tool, input_):
+            # A denied call still counts toward the policy budget so a model that
+            # keeps retrying a blocked tool cannot loop unbounded.
+            if self.policy is not None:
+                self.policy.record(name)
             return {
                 "type": "tool_result",
                 "tool_use_id": tool_id,

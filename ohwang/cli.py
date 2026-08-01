@@ -64,6 +64,38 @@ def _load_env(workdir: str) -> None:
             pass
 
 
+def _prepare_workdir(args: argparse.Namespace) -> None:
+    """chdir into --workdir and normalize it to an absolute path.
+
+    Keeps the tool layer (relative paths resolve against the new cwd) and the
+    service layer (.ohwang/ data dirs built from config.workdir) consistent: a
+    relative --workdir would otherwise be re-resolved against the already-changed
+    cwd, producing nested data directories like sub/sub/.ohwang/.
+    """
+    if args.workdir:
+        os.chdir(args.workdir)
+        args.workdir = os.getcwd()
+
+
+def _warn_noninteractive_approval(args: argparse.Namespace) -> None:
+    """Warn when a non-interactive one-shot run will silently deny 'ask' tools.
+
+    Without -y/--auto-approve, every ask-permission tool defaults to deny when
+    stdin is a pipe, which surprises scripted/CI callers and can send the model
+    into a permission-denial retry loop. --plan is fine (read-only intent).
+    """
+    if args.prompt and not args.auto_approve and not args.plan:
+        try:
+            if not sys.stdin.isatty():
+                sys.stderr.write(
+                    "Warning: non-interactive one-shot without -y — 'ask' tools "
+                    "will default to deny. Pass -y to auto-approve, or --plan "
+                    "for read-only research.\n"
+                )
+        except Exception:
+            pass
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="ohwang",
@@ -119,7 +151,7 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
         auto_approve=args.auto_approve,
         plan=args.plan,
         compact_threshold=args.compact_threshold,
-        workdir=args.workdir or os.getcwd(),
+        workdir=os.path.abspath(args.workdir or os.getcwd()),
     ).resolve()
 
     if not config.api_key:
@@ -509,8 +541,8 @@ def repl(
 def main(argv=None) -> int:
     setup_utf8()
     args = parse_args(argv)
-    if args.workdir:
-        os.chdir(args.workdir)
+    _prepare_workdir(args)
+    _warn_noninteractive_approval(args)
     _load_env(os.getcwd())
     run_lock = Lock()
     (

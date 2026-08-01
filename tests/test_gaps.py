@@ -392,7 +392,7 @@ def test_policy_load_corrupt_json(tmp_path):
     (tmp_path / ".ohwang").mkdir(exist_ok=True)
     (tmp_path / ".ohwang" / "policy.json").write_text("{bad", encoding="utf-8")
     p = PolicyLimits.load(str(tmp_path))
-    assert p.max_tool_calls == 1000
+    assert p.max_tool_calls == 200
     assert p.per_tool == {}
 
 

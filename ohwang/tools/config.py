@@ -27,6 +27,8 @@ class ConfigTool(BaseTool):
         "required": ["action"],
     }
     default_permission = "ask"
+    # These actions never mutate state — they may run even in read-only PLAN mode.
+    read_only_actions = ("list", "get")
 
     def __init__(self, workdir, permissions=None) -> None:
         self._workdir = workdir

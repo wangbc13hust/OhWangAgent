@@ -392,6 +392,9 @@ def test_scenario_plan_then_execute(tmp_path, monkeypatch):
         [{"type": "text", "text": "完成。"}],
     ]
     agent, _ = build_agent(responses)
+    # Exiting plan mode now requires explicit user approval; simulate the user
+    # approving so the model can proceed to the write phase.
+    agent.permissions._ask = lambda name, inp: "allow"
     final = agent.run("先调研需求再实现")
     assert "完成" in final
     assert (tmp_path / "impl.py").exists()

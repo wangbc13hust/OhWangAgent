@@ -78,10 +78,29 @@ class PermissionManager:
             return PermissionDecision(self._rules[name])
         return PermissionDecision(tool.default_permission)
 
+    def _ask_approved(self, tool: BaseTool, input: dict) -> bool:
+        if self._ask is None:
+            return False
+        answer = self._ask(tool.name, input)
+        if answer == "always":
+            self._always_allow.add(self._signature(tool.name, input))
+            return True
+        return answer == "allow"
+
     def can_run(self, tool: BaseTool, input: dict) -> bool:
         if self.mode is Mode.BYPASS:
             return True
         if self.mode is Mode.PLAN:
+            # Read-only config queries (list/get) may run during plan-mode
+            # research so the model isn't forced to read source to understand
+            # the current permission rules.
+            if input.get("action") in getattr(tool, "read_only_actions", ()):
+                return True
+            if tool.name == "exit_plan_mode":
+                # Leaving plan mode re-enables writes: require explicit user
+                # approval instead of letting the model silently revoke the
+                # read-only guarantee. Non-interactive denial keeps it read-only.
+                return self._ask_approved(tool, input)
             return tool.default_permission == "allow"
         if self.mode is Mode.AUTO:
             return True
@@ -94,10 +113,4 @@ class PermissionManager:
             return True
         if decision is PermissionDecision.ALLOW:
             return True
-        if self._ask is None:
-            return False
-        answer = self._ask(tool.name, input)
-        if answer == "always":
-            self._always_allow.add(self._signature(tool.name, input))
-            return True
-        return answer == "allow"
+        return self._ask_approved(tool, input)

@@ -29,7 +29,7 @@ class ExitPlanModeTool(BaseTool):
     name = "exit_plan_mode"
     description = "Exit plan mode and resume normal operation with all tools enabled."
     input_schema = {"type": "object", "properties": {}}
-    default_permission = "allow"
+    default_permission = "ask"  # leaving read-only plan mode requires user approval
 
     def __init__(self, permissions) -> None:
         self.permissions = permissions

@@ -14,7 +14,7 @@ class PolicyLimits:
 
     def __init__(
         self,
-        max_tool_calls: int = 1000,
+        max_tool_calls: int = 200,
         per_tool: Optional[dict[str, int]] = None,
     ) -> None:
         self.max_tool_calls = max_tool_calls

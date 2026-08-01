@@ -35,7 +35,7 @@ def test_policy_load_from_file(tmp_path):
 
 def test_policy_load_missing_defaults(tmp_path):
     p = PolicyLimits.load(str(tmp_path))
-    assert p.max_tool_calls == 1000
+    assert p.max_tool_calls == 200
     assert p.limit_for("bash") is None
 
 
