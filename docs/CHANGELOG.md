@@ -1,11 +1,25 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464（全绿）。
 
 ---
 
 ## 2026-08-01
+
+### 代码审查修复批次：并发锁 / 权限安全 / 健壮性
+
+全量通读 `ohwang/` 60+ 文件后的审查修复，分三个提交落地（`4fc16c9` `ed10401` `630e5b0`）：
+
+| 提交 | 内容 |
+| :--- | :--- |
+| `4fc16c9` | **并发/调度/浏览器/Anthropic 用量**：`cli.build_agent` 与 REPL 共用同一把 `run_lock`（此前两个独立 Lock 使 cron 后台与 REPL 前台可并发 `agent.run()` 污染 `messages` 状态）；`scheduler.start()` 移到 `agent` 绑定之后，消除启动期 NameError 窗口；cron 星期字段改为按 cron 语义（0=Sun）匹配（此前直接比较 Python `tm_wday`(0=Mon)，`* * * * 1` 在周二触发），新增 `py_dow_to_cron`；`browser.scroll` 方向修正（up 负增量）；`AnthropicProvider` 捕获 `message_start`/`message_delta` 的 usage，`/summary` 对 Anthropic 不再显示零 |
+| `ed10401` | **权限/安全**：子 agent 使用独立 AUTO `PermissionManager`（此前与主 agent 共享，子 agent 的 plan_mode/config 工具会篡改主 agent 权限状态），并继承 policy/compactor/usage/hooks 防失控；`deny` 规则优先于 `always` 记忆（此前 always 短路先于 deny）；`file_preview_edit`/`multi_edit` 仅显式 `apply=true` 才写盘（`preview:false` 不再隐含写入）；`web_fetch` 仅允许 http/https scheme（拒绝 `file://` 等 SSRF 向量）；`agent` 对缺 name/id 的畸形 provider 事件不再 KeyError 崩溃，渲染回调异常写 stderr |
+| `630e5b0` | **健壮性**：`grep` `errors=ignore`→`replace`（非法 UTF-8 字节不再静默丢弃）；`MemoryStore.render_context` 缓存按（项目文件签名+facts 签名）失效，CLAUDE.md 变更后不返回陈旧上下文；`maybe_extract` 在 provider 调用失败时不推进计数（瞬时网络错误不再导致整场跳过记忆提取）；`_load_env` 只剥离首尾配对的一对引号；token 估算对 CJK 按 ~1 字符/token（中文 prompt 不再被严重低估） |
+
+### 测试
+
+464 个测试全绿（本轮 +14：py_dow_to_cron、cron 语义星期、浏览器滚动方向、Anthropic usage、共享 run_lock、子 agent 权限隔离、deny 优先于 always、preview:false 不写盘、web_fetch scheme 拒绝、grep 非法字节保留、render_context 失效、maybe_extract 失败不推进、.env 配对引号、CJK token 估算）。
 
 ### Claude Code 对比补齐：MultiEdit / Diff 审批 / Cron 持久化
 

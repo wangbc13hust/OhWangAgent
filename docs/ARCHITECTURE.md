@@ -1,6 +1,6 @@
 # OhWangAgent 架构文档
 
-> 版本：v0.3.0 · 对应代码提交 `f0a24af` · 450 测试全绿（覆盖率 98%）
+> 版本：v0.3.0 · 对应代码提交 `630e5b0` · 464 测试全绿（覆盖率 98%）
 >
 > 定位：交互式 CLI **办公 agent** —— 文档撰写、会议纪要、资料检索、任务管理、
 > 报告生成 + 软件工程能力。架构对齐 Claude Code（Agent 循环 + 工具注册表 +
@@ -230,10 +230,14 @@ ohwang/
 
 ---
 
-## 6. 测试架构（`tests/`，450 个，覆盖率 98%）
+## 6. 测试架构（`tests/`，464 个，覆盖率 98%）
 
 - `helpers.py`：`ScriptedProvider`（重放事件序列）、`MockSearchProvider`、
   `build_agent()`——无网络、无真实模型的集成测试基座。
+- 并发/接线约定：`cli.build_agent(args, run_lock)` 由 `main` 传入唯一锁，
+  REPL 前台与 cron 调度后台共用，避免并发 run 同一 Agent；`scheduler.start()`
+  在 `agent` 装配完成后才调用。子 agent 使用独立 AUTO `PermissionManager`
+  并继承主 agent 的 policy/compactor/usage/hooks。
 - 覆盖：工具单元测试、provider 转换、权限/plan 模式、压缩、会话、
   记忆/记忆提取、hooks/policy/usage、调度、worktree、MCP、Skill/Plugin、
   办公场景（`test_scenarios.py`）、P3 新工具（`test_output_tools.py` 等）。
