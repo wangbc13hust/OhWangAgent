@@ -1,11 +1,24 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371（全绿，覆盖率 82% → 98%）。
 
 ---
 
 ## 2026-08-01
+
+### 全量单元测试补齐（覆盖率 82% → 98%）
+
+| 提交 | 内容 |
+| :--- | :--- |
+| — | **Tier 1（低覆盖模块）**：`mcp.py` 33%→95%（stdio JSON-RPC 全握手：initialize/tools/list/tools/call、超时、坏行、env 合并、load_mcp_tools 成功/失败路径）；`browser.py` 42%→95%（fake Playwright 驱动全部 7 个 action、DOM 截断、截图、close 停实例）；`openai_provider.py` 49%→100%（流式 text/tool_call 累积、坏 JSON、错误包装）；`providers/__init__` 43%→100%（create_provider 各 provider/base_url/未知）；`lsp.py` 47%→93%（LSPClient 生命周期、_rpc_call/_rpc_notify framing、diagnose 解析、load_lsp_tools 各格式） |
+| — | **Tier 2**：`search.py` 60%→98%（DDG HTML 解析/unwrap/Tavily/错误）、`plugins/loader.py` 70%→100%（entry_point 激活/失败/返回工具名）、`web_browser.py` 71%→94%（全 action dispatch）、`hooks.py` 81%→96%（cmd glob 过滤、post/notif 不阻塞、handler 异常、_run_cmd 失败） |
+| — | **Tier 3（新增 test_gaps.py 补齐分支）**：file_edit 读写 OSError、file_read/file_write OSError、glob 前缀目录/非递归、grep 200 行截断/不可读文件、session 坏文件跳过、tokens 字符串 content、worktree 超时/git 失败、compact _serialize 分支/空摘要、memory 工具全分支、mode label、registry 迭代/空名、scheduler a-b/step、policy 坏 JSON、settings 未知 action、skills frontmatter 标量/缺闭合/坏文件、default_tools skill/web_browser 条件注册 |
+| — | **真实子进程交互**：MCP 用 `sys.executable -c` fake stdio server 测完整握手；LSP RPC framing 用 fake proc 测 read/write 失败分支（Windows 文本模式 subprocess 与字节计数不兼容，LSP 改用 monkeypatch 测逻辑） |
+
+### 测试
+
+371 个测试全绿（本轮 +121，覆盖率 82% → 98%，覆盖全部 60+ 模块；剩余缺口为真实浏览器/真实 LSP server 等难以模拟路径）。
 
 ### Skill 系统建设（P4，Claude Code 风格）
 

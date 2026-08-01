@@ -20,6 +20,8 @@ env/
 
 # Test caches
 .pytest_cache/
+.coverage
+htmlcov/
 
 # Editor / OS
 .vscode/

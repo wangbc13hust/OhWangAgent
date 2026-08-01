@@ -1,6 +1,6 @@
 # OhWangAgent 架构文档
 
-> 版本：v0.3.0 · 对应代码提交 `9b95c37` · 222 测试全绿
+> 版本：v0.3.0 · 对应代码提交 `9b95c37` · 371 测试全绿（覆盖率 98%）
 >
 > 定位：交互式 CLI **办公 agent** —— 文档撰写、会议纪要、资料检索、任务管理、
 > 报告生成 + 软件工程能力。架构对齐 Claude Code（Agent 循环 + 工具注册表 +
@@ -230,13 +230,18 @@ ohwang/
 
 ---
 
-## 6. 测试架构（`tests/`，250 个）
+## 6. 测试架构（`tests/`，371 个，覆盖率 98%）
 
 - `helpers.py`：`ScriptedProvider`（重放事件序列）、`MockSearchProvider`、
   `build_agent()`——无网络、无真实模型的集成测试基座。
 - 覆盖：工具单元测试、provider 转换、权限/plan 模式、压缩、会话、
   记忆/记忆提取、hooks/policy/usage、调度、worktree、MCP、Skill/Plugin、
   办公场景（`test_scenarios.py`）、P3 新工具（`test_output_tools.py` 等）。
+- 覆盖率 98%（`coverage report --omit="ohwang/tui/widgets/*"`）；按模块补齐：
+  `test_providers.py`、`test_mcp.py`、`test_browser.py`、`test_lsp.py`、
+  `test_hooks.py`、`test_search.py`、`test_plugin.py`、`test_gaps.py`（分支补齐）。
+- MCP 用真实 stdio fake server 子进程测 JSON-RPC 握手；Playwright 用 mock
+  `playwright` + `playwright.sync_api` 模块。
 - 运行：`$env:PYTHONPATH="D:\ai-project\OhWangAgent"; .venv\Scripts\python.exe -m pytest -q`
 
 ---
