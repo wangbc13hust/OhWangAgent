@@ -120,3 +120,56 @@ def test_default_tools_registers_new_extensions():
     names = registry.names()
     assert "sleep" in names
     assert "config" in names
+    assert "synthetic_output" in names
+    assert "brief" in names
+    assert "snip" in names
+
+
+def test_agent_synthetic_output_shown_and_minimal_context():
+    shown = []
+    steps = [
+        [
+            {
+                "type": "tool_use",
+                "id": "x",
+                "name": "synthetic_output",
+                "input": {"text": "long report body the model must not re-read"},
+            }
+        ],
+        [{"type": "text", "text": "done"}],
+    ]
+    agent, _ = build_agent([])
+    from ohwang.tools.synthetic_output import SyntheticOutputTool
+
+    agent.tools.register(SyntheticOutputTool(display=shown.append))
+    agent.provider = Seq(steps)
+    agent.run("go")
+    assert shown == ["long report body the model must not re-read"]
+    results = _results(agent)
+    assert results[0]["content"] == "(shown to user)"
+    assert "long report body" not in results[0]["content"]
+
+
+def test_agent_brief_returns_summary_in_context():
+    steps = [
+        [
+            {
+                "type": "tool_use",
+                "id": "x",
+                "name": "brief",
+                "input": {"focus": "progress"},
+            }
+        ],
+        [{"type": "text", "text": "ok"}],
+    ]
+    agent, _ = build_agent([])
+    usage = UsageTracker()
+    usage.record("file_read", False)
+    from ohwang.tools.brief import BriefTool
+
+    agent.tools.register(BriefTool(usage, None, lambda: agent.iterations))
+    agent.provider = Seq(steps)
+    agent.run("go")
+    results = _results(agent)
+    assert results[0]["content"].startswith("Session brief")
+    assert "Tool calls: 1" in results[0]["content"]

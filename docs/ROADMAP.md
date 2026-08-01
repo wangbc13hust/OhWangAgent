@@ -1,7 +1,7 @@
 # OhWangAgent — 架构对比与演进路线图
 
 > 基于对 Claude Code 泄露源码（`v2.1.88`，`Anthropic-Leaked-Source-Code`，1903 文件）的结构扫描，
-> 与 OhWangAgent 当前实现（`v0.3.0`，88 个 Python 文件，180 测试全绿）对比，给出修正后的演进计划。
+> 与 OhWangAgent 当前实现（`v0.3.0`，88 个 Python 文件，222 测试全绿）对比，给出修正后的演进计划。
 >
 > **定位**：办公 agent（办公 Agent）——文档处理、会议纪要、资料检索、任务管理、报告撰写 + 软件工程能力。
 
@@ -9,7 +9,7 @@
 
 ## 1. 当前能力盘点（2026-08 实测）
 
-### 1.1 工具层（24 个）
+### 1.1 工具层（27 个）
 
 | 域 | 工具 |
 | :--- | :--- |
@@ -18,8 +18,9 @@
 | 记忆/任务 | memory_read, memory_write, todo_write |
 | 规划/协作 | enter_plan_mode, exit_plan_mode, agent(子 agent) |
 | 主动/调度 | cron_create, cron_delete, cron_list |
+| 输出/展示 | synthetic_output, brief, snip, sleep |
 | MCP | load_mcp_tools（CLI 接入） |
-| 其他 | ask_user_question, tool_search, lsp_diagnose, enter_worktree, exit_worktree |
+| 其他 | ask_user_question, tool_search, lsp_diagnose, enter_worktree, exit_worktree, config |
 
 ### 1.2 服务层（11 个）
 
@@ -59,14 +60,14 @@ search（DuckDuckGo/Tavily）、mcp、worktree、scheduler（cron）、browser�
 | Feature flag / TUI | ✅ | ✅ | — |
 | Worktree | ✅ | ✅ | — |
 | Cron 调度 | ✅ | ✅ | — |
-| **Sleep / Monitor / RemoteTrigger** | ✅ | ❌ | P3 |
+| **Sleep / Monitor / RemoteTrigger** | ✅ | ⚠️ Sleep 已实现 | P3 |
 | **ToolSearch** | ✅ | ✅ | — |
-| **SyntheticOutput / Brief / Snip / SendUserFile** | ✅ | ❌ | P3 |
-| **ConfigTool** | ✅ | ❌ | P3 |
-| **自动记忆提取（extractMemories）** | ✅ | ❌ | **P3-高** |
-| **hooks（preToolUse/postToolUse/notifs）** | ✅ | ❌ | **P3-高** |
-| **toolUseSummary / AgentSummary** | ✅ | ❌ | P3 |
-| **policyLimits 策略执行** | ✅ | ❌ | P3 |
+| **SyntheticOutput / Brief / Snip / SendUserFile** | ✅ | ⚠️ 3/4 | P3 |
+| **ConfigTool** | ✅ | ✅ | P3 |
+| **自动记忆提取（extractMemories）** | ✅ | ✅ | **P3-高** |
+| **hooks（preToolUse/postToolUse/notifs）** | ✅ | ✅ | **P3-高** |
+| **toolUseSummary / AgentSummary** | ✅ | ✅ | P3 |
+| **policyLimits 策略执行** | ✅ | ✅ | P3 |
 | **PromptSuggestion** | ✅ | ❌ | P3 |
 | IDE bridge / swarm / OAuth / 遥测 | ✅ | ❌ | P4 |
 
@@ -104,14 +105,14 @@ skill、plugin、lsp、memdir 记忆、feature flag、Textual TUI、powerShell�
 | 3B.2 | **policyLimits** | `PolicyLimits`：工具调用频率/总量上限，`.ohwang/policy.json` | ✅ |
 | 3B.3 | **ConfigTool** | 运行时读写 `.ohwang/settings.json` 权限规则（`config` 工具） | ✅ |
 
-### 📋 P3-C — 输出与展示
+### ✅ P3-C — 输出与展示（已完成）
 
-| # | 任务 | 说明 |
-| :--- | :--- | :--- |
-| 3C.1 | SyntheticOutputTool | 向用户展示一段文本（不进入上下文） |
-| 3C.2 | BriefTool | 生成会话进度简报 |
-| 3C.3 | SleepTool | 主动模式下延时等待 — ✅ 已实现 |
-| 3C.4 | SnipTool | 截取并保存终端输出片段 |
+| # | 任务 | 说明 | 状态 |
+| :--- | :--- | :--- | :---: |
+| 3C.1 | SyntheticOutputTool | 向用户展示文本，不进模型上下文 | ✅ |
+| 3C.2 | BriefTool | 会话进度简报（工具统计/todo/迭代数） | ✅ |
+| 3C.3 | SleepTool | 主动模式下延时等待 | ✅ |
+| 3C.4 | SnipTool | 保存终端输出片段到 `.ohwang/snips/` | ✅ |
 
 ### 📋 P3-D — 任务与协作增强
 
@@ -135,7 +136,7 @@ IDE bridge、Coordinator/swarm、OAuth、遥测分析、NotebookEdit、MCP resou
    ↓
 ✅ P3-B hooks 系统 → policyLimits → ConfigTool   （212 测试全绿）
    ↓
-📋 P3-C 输出展示工具（SyntheticOutput/Brief/Snip + SleepTool✅）
+✅ P3-C 输出展示工具（SyntheticOutput/Brief/Sleep/Snip）   （222 测试全绿）
    ↓
 📋 P3-D Task v2 → VerifyPlanExecution
    ↓

@@ -15,6 +15,9 @@ def default_tools(
     workdir=None,
     scheduler=None,
     flags=None,
+    usage=None,
+    display_callback=None,
+    iterations_getter=None,
 ) -> ToolRegistry:
     """Build a registry with the core coding tools + extensions.
 
@@ -27,6 +30,9 @@ def default_tools(
       workdir         — base dir for git worktree management
       scheduler       — enables cron_create/delete/list (proactive mode)
       flags           — FeatureFlags for gating web_browser
+      usage           — UsageTracker for the brief tool
+      display_callback — callable(str) for synthetic_output
+      iterations_getter — callable() -> int for the brief tool
     """
     from .bash import BashTool
     from .file_edit import FileEditTool
@@ -38,6 +44,9 @@ def default_tools(
     from .tool_search import ToolSearchTool
     from .sleep import SleepTool
     from .config import ConfigTool
+    from .synthetic_output import SyntheticOutputTool
+    from .brief import BriefTool
+    from .snip import SnipTool
     from .web_fetch import WebFetchTool
     from .web_search import WebSearchTool
 
@@ -57,6 +66,9 @@ def default_tools(
 
     registry.register(ToolSearchTool(registry))
     registry.register(ConfigTool(workdir or os.getcwd(), permissions))
+    registry.register(SyntheticOutputTool(display_callback))
+    registry.register(BriefTool(usage, todo_store, iterations_getter))
+    registry.register(SnipTool(workdir or os.getcwd()))
 
     if search_provider is not None:
         registry.register(WebSearchTool(search_provider))

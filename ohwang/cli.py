@@ -111,6 +111,7 @@ def build_agent(args: argparse.Namespace):
         deny=settings["deny"],
     )
     todo_store = TodoStore()
+    usage = UsageTracker()
 
     system_prompt = build_system_prompt(config.workdir)
 
@@ -152,6 +153,9 @@ def build_agent(args: argparse.Namespace):
         workdir=config.workdir,
         scheduler=scheduler,
         flags=flags,
+        usage=usage,
+        display_callback=lambda text: renderer.console.print(text, highlight=False),
+        iterations_getter=lambda: agent.iterations,
     )
 
     if not args.no_mcp:
@@ -177,7 +181,6 @@ def build_agent(args: argparse.Namespace):
     compactor = Compactor(threshold_tokens=config.compact_threshold)
     session_store = SessionStore(config.workdir)
 
-    usage = UsageTracker()
     hooks = HookManager(config.workdir)
     loaded_hooks = hooks.load_json()
     policy = PolicyLimits.load(config.workdir)
