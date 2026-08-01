@@ -18,6 +18,9 @@ CLI / REPL  ──►  Agent loop  ──►  Provider (Anthropic | OpenAI-compa
                Permission manager  ──►  ask / allow / always
 ```
 
+详细设计见 **`docs/ARCHITECTURE.md`**（模块图、Agent 循环、权限/钩子/策略/
+记忆/调度机制、扩展点、数据目录、已知缺口）。
+
 - **`ohwang/agent.py`** — the loop: LLM → parse tool_use → run tool → feed
   result back → repeat until the model stops calling tools.
 - **`ohwang/providers/`** — `BaseProvider` emits unified streaming events
@@ -31,8 +34,8 @@ CLI / REPL  ──►  Agent loop  ──►  Provider (Anthropic | OpenAI-compa
   auto-allow; mutating tools ask (y/n/always) unless `--auto-approve`.
   `.ohwang/settings.json` can set `allow` / `ask` / `deny` glob rules.
 - **`ohwang/services/`** — compact, session, settings, search, mcp, worktree,
-  scheduler, browser.
-- **`ohwang/tui/render.py`** — Rich-based streaming output.
+  scheduler, browser, memory, hooks, policy, summary.
+- **`ohwang/tui/render.py`** — Rich-based streaming output (UTF-8 safe).
 
 ## Install
 
@@ -91,7 +94,7 @@ ohwang> /exit
   cron scheduling, git worktree, MCP client, browser (Playwright).
 - **Context compaction**, session save/resume, `.ohwang/settings.json`
   permission rules, feature flags, skills/plugins/LSP/memory.
-- **130+ unit tests + office scenario tests** (`tests/`).
+- **222 unit tests + office scenario tests** (`tests/`).
 
 ## Status
 
