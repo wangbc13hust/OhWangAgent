@@ -32,17 +32,45 @@ class MemoryStore:
         self._facts_mtime: float | None = None
         self._ctx_cache: str | None = None
         self._ctx_sig: tuple | None = None
+        self._context_cache: str | None = None
+        self._max_facts_in_context = 30
 
     def load_project_context(self) -> str:
         """Load CLAUDE.md / AGENTS.md from project root as context string."""
+        sig = self._project_sig()
+        if self._ctx_cache is not None and sig == self._ctx_sig:
+            return self._ctx_cache
+        text = ""
         for name in ("CLAUDE.md", "AGENTS.md"):
             path = self.workdir / name
             if path.is_file():
                 try:
-                    return path.read_text(encoding="utf-8")
+                    text = path.read_text(encoding="utf-8")
                 except Exception:
                     continue
-        return ""
+                break
+        self._ctx_cache = text
+        self._ctx_sig = sig
+        return text
+
+    def _project_sig(self) -> tuple:
+        sig = []
+        for name in ("CLAUDE.md", "AGENTS.md"):
+            path = self.workdir / name
+            if path.is_file():
+                try:
+                    sig.append((name, path.stat().st_mtime, path.stat().st_size))
+                except OSError:
+                    sig.append((name, None, None))
+            else:
+                sig.append((name, None, None))
+        return tuple(sig)
+
+    def _facts_signature(self) -> object:
+        try:
+            return self._facts_path.stat().st_mtime
+        except OSError:
+            return None
 
     def add_fact(self, key: str, value: str, tags: Optional[list[str]] = None) -> None:
         """Add or update a fact in the memory store."""
@@ -88,6 +116,8 @@ class MemoryStore:
 
     def render_context(self) -> str:
         """Build a context string combining project markdown + relevant facts."""
+        if self._context_cache is not None:
+            return self._context_cache
         parts: list[str] = []
         project_ctx = self.load_project_context()
         if project_ctx:
@@ -96,11 +126,20 @@ class MemoryStore:
         facts = self.list_facts()
         if facts:
             parts.append("\n# Project Memory\n")
-            for f in facts:
+            shown = facts[-self._max_facts_in_context :]
+            if len(facts) > len(shown):
+                parts.append(
+                    f"(showing {len(shown)} of {len(facts)} facts; use memory_read for the rest)\n"
+                )
+            for f in shown:
                 tags_str = f" [{', '.join(f['tags'])}]" if f["tags"] else ""
                 parts.append(f"- **{f['key']}**{tags_str}: {f['value']}")
 
-        return "\n".join(parts)
+        self._context_cache = "\n".join(parts)
+        return self._context_cache
+
+    def _invalidate_context(self) -> None:
+        self._context_cache = None
 
     def _load_facts(self) -> dict:
         if not self._facts_path.is_file():
@@ -127,6 +166,7 @@ class MemoryStore:
         )
         self._facts_cache = None
         self._facts_mtime = None
+        self._invalidate_context()
 
     def import_facts(self, facts: list[dict]) -> int:
         """Merge extracted facts into the store. Returns the number added."""

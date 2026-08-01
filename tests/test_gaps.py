@@ -762,3 +762,125 @@ def test_default_tools_skips_web_browser_when_disabled():
 
     reg = default_tools(flags=_Flags())
     assert "browser_action" not in reg
+
+
+def test_registry_specs_cached():
+    from ohwang.tools.base import BaseTool, ToolResult
+    from ohwang.tools.registry import ToolRegistry
+
+    calls = {"n": 0}
+
+    class T(BaseTool):
+        name = "t"
+        description = "desc"
+        input_schema = {"type": "object", "properties": {}}
+
+        def to_spec(self):
+            calls["n"] += 1
+            return {"name": self.name, "description": self.description}
+
+        def execute(self, input):
+            return ToolResult(content="ok")
+
+    reg = ToolRegistry()
+    reg.register(T())
+    spec1 = reg.specs()
+    spec2 = reg.specs()
+    assert calls["n"] == 1
+    assert spec1 == spec2
+
+
+def test_registry_specs_invalidated_on_register():
+    from ohwang.tools.base import BaseTool, ToolResult
+    from ohwang.tools.registry import ToolRegistry
+
+    class T(BaseTool):
+        name = "t"
+        description = "d"
+        input_schema = {}
+
+        def execute(self, input):
+            return ToolResult(content="ok")
+
+    class T2(BaseTool):
+        name = "t2"
+        description = "d2"
+        input_schema = {}
+
+        def execute(self, input):
+            return ToolResult(content="ok")
+
+    reg = ToolRegistry()
+    reg.register(T())
+    reg.specs()
+    reg.register(T2())
+    assert len(reg.specs()) == 2
+    assert {s["name"] for s in reg.specs()} == {"t", "t2"}
+
+
+def test_agent_system_cached_and_invalidated():
+    from ohwang.agent import Agent
+    from ohwang.config import Config
+    from ohwang.tools.registry import ToolRegistry
+    from ohwang.permissions import PermissionManager
+    from ohwang.modes import Mode
+    from ohwang.tools.base import BaseTool, ToolResult
+
+    class T(BaseTool):
+        name = "t"
+        description = "d"
+        input_schema = {}
+
+        def execute(self, input):
+            return ToolResult(content="ok")
+
+    agent = Agent(
+        provider=None,
+        tools=ToolRegistry().register(T()),
+        permissions=PermissionManager(mode=Mode.AUTO),
+        config=Config(workdir=os.getcwd()).resolve(),
+        system="SYSTEM_BASE",
+    )
+    s1 = agent._effective_system()
+    s2 = agent._effective_system()
+    assert s1 == s2 == "SYSTEM_BASE"
+    agent._invalidate_system()
+    assert agent._effective_system() == "SYSTEM_BASE"
+
+
+def test_memory_render_context_cached(tmp_path):
+    from ohwang.services.memory import MemoryStore
+
+    ms = MemoryStore(str(tmp_path))
+    ms.add_fact("k", "v1")
+    first = ms.render_context()
+    second = ms.render_context()
+    assert "k" in first
+    assert first == second
+    ms.add_fact("k2", "v2")
+    updated = ms.render_context()
+    assert "k2" in updated
+
+
+def test_memory_load_project_context_cached(tmp_path):
+    from ohwang.services.memory import MemoryStore
+
+    (tmp_path / "CLAUDE.md").write_text("project instructions", encoding="utf-8")
+    ms = MemoryStore(str(tmp_path))
+    assert ms.load_project_context() == "project instructions"
+    (tmp_path / "CLAUDE.md").write_text("changed", encoding="utf-8")
+    assert ms.load_project_context() == "changed"
+
+
+def test_memory_render_context_caps_facts(tmp_path):
+    from ohwang.services.memory import MemoryStore
+
+    ms = MemoryStore(str(tmp_path))
+    ms._max_facts_in_context = 3
+    for i in range(5):
+        ms.add_fact(f"key{i}", f"value{i}")
+    ctx = ms.render_context()
+    assert "key3" in ctx
+    assert "key4" in ctx
+    assert "key0" not in ctx
+    assert "showing 3 of 5 facts" in ctx

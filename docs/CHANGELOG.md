@@ -1,11 +1,25 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410（全绿）。
 
 ---
 
 ## 2026-08-01
+
+### Token 消耗优化（降低 API 成本）
+
+| 提交 | 内容 |
+| :--- | :--- |
+| — | **system prompt 缓存**：`Agent._effective_system()` 原本每次迭代重建（todo render + 记忆渲染 + 字符串拼接），现单次 run 内缓存复用，仅工具执行后/下次 run 失效；`render_context` 实测从"每迭代多次"降为"单次 run 1 次" |
+| — | **工具 specs 缓存**：`ToolRegistry.specs()` 原本每次迭代全量序列化 20 个工具（约 1910 token），现注册后缓存、register 时失效；单次 run 内 `to_spec` 只调用工具数次（20），不再随迭代次数翻倍 |
+| — | **记忆上下文缓存**：`MemoryStore.load_project_context()` 按 CLAUDE.md/AGENTS.md 的 mtime+size 签名缓存；`render_context()` 整体缓存，facts 写操作（add/delete/import）自动失效 |
+| — | **facts 注入上限**：system prompt 记忆段最多注入最近 30 条 facts（超出提示用 memory_read 检索），防止长期使用后记忆段无限膨胀 |
+| — | 实测验证：多轮工具调用场景（文件读取→综合→写入→读回）优化后功能正常，`to_spec`/`render_context` 调用次数显著下降 |
+
+### 测试
+
+410 个测试全绿（本轮 +6：registry specs 缓存/失效、agent system 缓存、memory render_context 缓存与失效、project context 缓存、facts 上限截断）。
 
 ### 高强度办公场景第三轮：修复国内搜索不可达短板
 

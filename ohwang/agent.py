@@ -41,14 +41,18 @@ class Agent:
         self.usage = usage
         self.messages: list[dict] = []
         self.iterations = 0
+        self._system_cache: str | None = None
 
     def reset(self) -> None:
         self.messages.clear()
         self.iterations = 0
+        self._system_cache = None
         if self.todo_store is not None:
             self.todo_store.set([])
 
     def _effective_system(self) -> str:
+        if self._system_cache is not None:
+            return self._system_cache
         parts = [self.system]
         if self.todo_store is not None:
             parts.append(self.todo_store.render())
@@ -56,7 +60,11 @@ class Agent:
             memory_ctx = self.memory_store.render_context()
             if memory_ctx:
                 parts.append("\n\n# Project Memory\n" + memory_ctx)
-        return "\n".join(p for p in parts if p)
+        self._system_cache = "\n".join(p for p in parts if p)
+        return self._system_cache
+
+    def _invalidate_system(self) -> None:
+        self._system_cache = None
 
     def run(
         self,
@@ -70,6 +78,7 @@ class Agent:
         self.messages.append(
             {"role": "user", "content": [{"type": "text", "text": user_input}]}
         )
+        self._invalidate_system()
 
         final_text = ""
         for _ in range(max_iterations):
@@ -139,6 +148,7 @@ class Agent:
                     except Exception:
                         pass
                 result_blocks.append(block)
+            self._invalidate_system()
             self.messages.append({"role": "user", "content": result_blocks})
 
         return final_text
