@@ -5,8 +5,10 @@ from typing import Callable, Optional
 from .config import Config
 from .permissions import PermissionManager
 from .providers.base import BaseProvider
+from .services.compact import Compactor
 from .tools.base import ToolResult
 from .tools.registry import ToolRegistry
+from .tools.todo import TodoStore
 
 
 class Agent:
@@ -19,18 +21,29 @@ class Agent:
         permissions: PermissionManager,
         config: Config,
         system: str,
+        todo_store: Optional[TodoStore] = None,
+        compactor: Optional[Compactor] = None,
     ) -> None:
         self.provider = provider
         self.tools = tools
         self.permissions = permissions
         self.config = config
         self.system = system
+        self.todo_store = todo_store
+        self.compactor = compactor
         self.messages: list[dict] = []
         self.iterations = 0
 
     def reset(self) -> None:
         self.messages.clear()
         self.iterations = 0
+        if self.todo_store is not None:
+            self.todo_store.set([])
+
+    def _effective_system(self) -> str:
+        if self.todo_store is not None:
+            return self.system + self.todo_store.render()
+        return self.system
 
     def run(
         self,
@@ -38,6 +51,7 @@ class Agent:
         on_text: Optional[Callable[[str], None]] = None,
         on_tool_call: Optional[Callable[[dict], None]] = None,
         on_tool_result: Optional[Callable[[str, bool], None]] = None,
+        on_compact: Optional[Callable[[int, int], None]] = None,
         max_iterations: int = 50,
     ) -> str:
         self.messages.append(
@@ -47,11 +61,20 @@ class Agent:
         final_text = ""
         for _ in range(max_iterations):
             self.iterations += 1
+
+            if self.compactor is not None and self.compactor.should_compact(self.messages):
+                before = len(self.messages)
+                self.messages = self.compactor.compact(
+                    self.messages, self.provider, self._effective_system()
+                )
+                if on_compact:
+                    on_compact(before, len(self.messages))
+
             text_parts: list[str] = []
             tool_uses: list[dict] = []
 
             for event in self.provider.chat(
-                system=self.system,
+                system=self._effective_system(),
                 messages=self.messages,
                 tools=self.tools.specs(),
                 max_tokens=self.config.max_tokens,
@@ -116,7 +139,7 @@ class Agent:
             return {
                 "type": "tool_result",
                 "tool_use_id": tool_id,
-                "content": "Permission denied by user.",
+                "content": "Permission denied (mode/permission rules blocked this tool).",
                 "is_error": True,
             }
 

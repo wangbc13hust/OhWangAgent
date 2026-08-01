@@ -15,6 +15,12 @@ env/
 .env
 .env.local
 
+# Runtime data
+.ohwang/
+
+# Test caches
+.pytest_cache/
+
 # Editor / OS
 .vscode/
 .idea/

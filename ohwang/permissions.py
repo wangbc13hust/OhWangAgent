@@ -3,6 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Callable, Optional
 
+from .modes import Mode
 from .tools.base import BaseTool
 
 
@@ -16,10 +17,13 @@ AskCallback = Callable[[str, dict], str]
 
 
 class PermissionManager:
-    """Decides whether a tool call may run.
+    """Decides whether a tool call may run, mode-aware.
 
-    default_permission on each tool: "allow" (read-only/safe), "ask", "deny".
-    The CLI injects an ask_callback returning "allow" | "deny" | "always".
+    Modes:
+      DEFAULT — per-tool default_permission, ask callback for "ask" tools
+      PLAN    — read-only: only "allow" tools pass (writes/bash blocked)
+      AUTO    — auto-approve everything
+      BYPASS  — no checks at all
     """
 
     def __init__(
@@ -27,11 +31,25 @@ class PermissionManager:
         auto_approve: bool = False,
         ask_callback: Optional[AskCallback] = None,
         rules: Optional[dict[str, str]] = None,
+        mode: Optional[Mode] = None,
     ) -> None:
-        self.auto_approve = auto_approve
         self._ask = ask_callback
         self._rules: dict[str, str] = rules or {}
         self._always_allow: set[str] = set()
+        self.mode = mode if mode is not None else (Mode.AUTO if auto_approve else Mode.DEFAULT)
+
+    @property
+    def auto_approve(self) -> bool:
+        return self.mode in (Mode.AUTO, Mode.BYPASS)
+
+    @auto_approve.setter
+    def auto_approve(self, value: bool) -> None:
+        if value:
+            if self.mode is Mode.DEFAULT:
+                self.mode = Mode.AUTO
+        else:
+            if self.mode in (Mode.AUTO, Mode.BYPASS):
+                self.mode = Mode.DEFAULT
 
     def _signature(self, tool_name: str, input: dict) -> str:
         key_arg = input.get("file_path") or input.get("command") or ""
@@ -43,8 +61,13 @@ class PermissionManager:
         return PermissionDecision(tool.default_permission)
 
     def can_run(self, tool: BaseTool, input: dict) -> bool:
-        if self.auto_approve:
+        if self.mode is Mode.BYPASS:
             return True
+        if self.mode is Mode.PLAN:
+            return tool.default_permission == "allow"
+        if self.mode is Mode.AUTO:
+            return True
+
         if self._signature(tool.name, input) in self._always_allow:
             return True
         decision = self.decide(tool, input)

@@ -23,6 +23,8 @@ class Config:
     api_key: str = ""
     max_tokens: int = 8192
     auto_approve: bool = False
+    plan: bool = False
+    compact_threshold: int = 100_000
     workdir: str = "."
 
     def resolve(self) -> "Config":

@@ -6,10 +6,13 @@ import sys
 
 from .agent import Agent
 from .config import PROVIDER_PRESETS, Config
+from .modes import Mode
 from .permissions import PermissionManager
 from .prompts import SYSTEM_PROMPT
 from .providers import create_provider
+from .services import Compactor, SessionStore
 from .tools import default_tools
+from .tools.todo import TodoStore
 from .tui import Renderer
 
 
@@ -29,7 +32,18 @@ def parse_args(argv=None) -> argparse.Namespace:
         "-y",
         "--auto-approve",
         action="store_true",
-        help="Auto-approve every tool call (no prompts)",
+        help="Auto-approve every tool call (AUTO mode)",
+    )
+    p.add_argument(
+        "--plan",
+        action="store_true",
+        help="Start in PLAN mode (read-only, no writes/bash)",
+    )
+    p.add_argument(
+        "--compact-threshold",
+        type=int,
+        default=100_000,
+        help="Token estimate threshold to trigger context compaction",
     )
     p.add_argument("--workdir", default=None, help="Working directory")
     p.add_argument(
@@ -45,6 +59,8 @@ def build_agent(args: argparse.Namespace):
         api_key=args.api_key or "",
         max_tokens=args.max_tokens,
         auto_approve=args.auto_approve,
+        plan=args.plan,
+        compact_threshold=args.compact_threshold,
         workdir=args.workdir or os.getcwd(),
     ).resolve()
 
@@ -54,15 +70,31 @@ def build_agent(args: argparse.Namespace):
         sys.exit(2)
 
     provider = create_provider(config, base_url=args.base_url)
-    tools = default_tools()
     renderer = Renderer()
 
-    ask_callback = None if config.auto_approve else renderer.ask
-    permissions = PermissionManager(
-        auto_approve=config.auto_approve, ask_callback=ask_callback
+    if config.plan:
+        mode = Mode.PLAN
+    elif config.auto_approve:
+        mode = Mode.AUTO
+    else:
+        mode = Mode.DEFAULT
+
+    permissions = PermissionManager(mode=mode, ask_callback=renderer.ask)
+    todo_store = TodoStore()
+    tools = default_tools(todo_store=todo_store, permissions=permissions)
+    compactor = Compactor(threshold_tokens=config.compact_threshold)
+    session_store = SessionStore(config.workdir)
+
+    agent = Agent(
+        provider,
+        tools,
+        permissions,
+        config,
+        SYSTEM_PROMPT,
+        todo_store=todo_store,
+        compactor=compactor,
     )
-    agent = Agent(provider, tools, permissions, config, SYSTEM_PROMPT)
-    return agent, renderer, config
+    return agent, renderer, config, session_store
 
 
 def _run_once(agent: Agent, renderer: Renderer, prompt: str) -> None:
@@ -72,16 +104,64 @@ def _run_once(agent: Agent, renderer: Renderer, prompt: str) -> None:
             on_text=renderer.stream_text,
             on_tool_call=renderer.tool_call,
             on_tool_result=renderer.tool_result,
+            on_compact=lambda b, a: renderer.warn(
+                f"Context compacted: {b} -> {a} messages."
+            ),
         )
     except Exception as exc:
         renderer.warn(f"Error: {exc}")
     renderer.end_turn()
 
 
-def repl(agent: Agent, renderer: Renderer, config: Config, one_shot: str | None) -> None:
-    renderer.info(f"OhWangAgent — provider={config.provider} model={config.model}")
-    if config.auto_approve:
-        renderer.warn("Auto-approve ON — tools run without asking.")
+def _cmd_resume(agent, renderer, session_store):
+    items = session_store.list()
+    if not items:
+        renderer.info("No saved sessions.")
+        return
+    for i, it in enumerate(items, 1):
+        renderer.info(f"  [{i}] {it['id']}  ({it['n_messages']} msgs) {it['preview'][:40]}")
+    choice = renderer.console.input("Pick session number (blank to cancel): ").strip()
+    if not choice:
+        return
+    try:
+        sid = items[int(choice) - 1]["id"]
+    except (ValueError, IndexError):
+        renderer.warn("Invalid choice.")
+        return
+    msgs = session_store.load(sid)
+    if msgs is None:
+        renderer.warn("Failed to load session.")
+        return
+    agent.messages = msgs
+    renderer.info(f"Resumed session {sid} ({len(msgs)} messages).")
+
+
+def _cmd_save(agent, renderer, session_store):
+    if not agent.messages:
+        renderer.info("Nothing to save (empty conversation).")
+        return
+    preview = ""
+    for m in agent.messages:
+        if m["role"] == "user":
+            c = m.get("content")
+            if isinstance(c, list):
+                for b in c:
+                    if b.get("type") == "text":
+                        preview = b["text"][:80]
+                        break
+            break
+    sid = session_store.save(agent.messages, preview)
+    renderer.info(f"Saved session {sid} ({len(agent.messages)} messages).")
+
+
+def repl(
+    agent: Agent,
+    renderer: Renderer,
+    config: Config,
+    session_store: SessionStore,
+    one_shot: str | None,
+) -> None:
+    renderer.info(f"OhWangAgent — provider={config.provider} model={config.model} mode={agent.permissions.mode.label}")
     renderer.info("Type /help for commands, /exit to quit.")
 
     if one_shot:
@@ -108,15 +188,30 @@ def repl(agent: Agent, renderer: Renderer, config: Config, one_shot: str | None)
                 renderer.info(f"  {t.name}  [{t.default_permission}]")
             continue
         if line == "/help":
-            renderer.info("Commands: /help /tools /clear /auto /model <id> /exit")
+            renderer.info(
+                "Commands: /help /tools /clear /auto /mode /model <id> "
+                "/todo /save /resume /exit"
+            )
             continue
         if line == "/auto":
-            config.auto_approve = not config.auto_approve
-            agent.permissions.auto_approve = config.auto_approve
-            renderer.warn(f"Auto-approve {'ON' if config.auto_approve else 'OFF'}.")
+            agent.permissions.auto_approve = not agent.permissions.auto_approve
+            renderer.warn(f"Auto-approve {'ON' if agent.permissions.auto_approve else 'OFF'}.")
+            continue
+        if line == "/mode":
+            renderer.info(f"Current mode: {agent.permissions.mode.label}")
+            continue
+        if line == "/todo":
+            rendered = agent.todo_store.render() if agent.todo_store else ""
+            renderer.info(rendered.strip() or "No todos.")
+            continue
+        if line == "/save":
+            _cmd_save(agent, renderer, session_store)
+            continue
+        if line == "/resume":
+            _cmd_resume(agent, renderer, session_store)
             continue
         if line.startswith("/model "):
-            new_model = line[len("/model ") :].strip()
+            new_model = line[len("/model "):].strip()
             config.model = new_model
             agent.provider.model = new_model
             renderer.info(f"Model set to {new_model}.")
@@ -128,8 +223,8 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     if args.workdir:
         os.chdir(args.workdir)
-    agent, renderer, config = build_agent(args)
-    repl(agent, renderer, config, one_shot=args.prompt)
+    agent, renderer, config, session_store = build_agent(args)
+    repl(agent, renderer, config, session_store, one_shot=args.prompt)
     return 0
 
 
