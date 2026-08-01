@@ -1,7 +1,44 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474（全绿）。
+
+---
+
+## 2026-08-02
+
+### 真实办公场景实测修复批次（DeepSeek 实测 → 修复 → 复验）
+
+用真实模型（DeepSeek）在办公室子目录实测 agent 的完整工作流，暴露了此前 mock
+评审覆盖不到的行为问题，全部修复并复验（被拒后 4 次调用即停止，对比此前
+>300s/40+ 次自救循环）。
+
+- **P0 数据目录嵌套**：以相对 `--workdir` 启动时，`.ohwang/` 被写入
+  `sub/sub/.ohwang/…`（cli 相对路径 + 服务层二次解析）。`main()` 现在先
+  `chdir` 并规范化 `workdir` 为绝对路径（`_prepare_workdir`），`build_agent` 兜底
+  `abspath`，修复 `test_prepare_workdir_normalizes_to_absolute` 等。
+- **P1a 权限拒绝无硬边界**：模型在 `file_write` 被拒后改读 30+ 个源码文件、自行
+  `exit_plan_mode`、尝试替代工具，"绕行"而非停下。`SYSTEM_PROMPT` 增加硬边界指令：
+  "Permission denied" 是 HARD BOUNDARY，不得重试、不得换工具达成同一效果、不得读
+  源码找绕过，应停下或请用户改权限模式。
+- **P1b 权限策略收紧**：`PolicyLimits` 总调用上限默认 1000 → 200；被拒绝的调用
+  现在也计入预算（`agent.py` 拒绝分支调用 `policy.record`），防止被拒后无限重试。
+- **P1c 退出 plan 模式需批准**：`exit_plan_mode` 的 `default_permission` 由 `allow`
+  改为 `ask`；PLAN 模式下退出读保护模式必须经用户批准（`_ask_approved`），非交互
+  stdin 默认 deny。
+- **P1d PLAN 模式只读放行**：`config` 工具声明 `read_only_actions = ("list", "get")`，
+  PLAN 模式下读取配置放行、变更动作仍拦截。
+- **P2 保守的记忆提取**：`MemoryExtractor` 默认 `growth_threshold` 10 → 20；提取
+  提示词明确排除单会话临时内容（会议记录、一次性数据/图表），避免把临时事实刷进
+  长期记忆。
+- **P3 非交互运行告警**：一次性 `-p` 运行且未给 `-y`/`--plan` 时，stderr 打印
+  提示（默认 deny 可能让工具全部被拒）。
+
+### 测试
+
+474 个测试全绿（本轮 +10：workdir 规范化、build_agent 统一绝对 workdir、权限拒绝
+提示硬边界、被拒调用计入策略预算、plan 模式退出需批准、AUTO 模式 plan 工具可用、
+PLAN 下 config 只读放行、记忆提取默认阈值、提取提示排除临时数据、非交互告警）。
 
 ---
 

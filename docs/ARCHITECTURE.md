@@ -1,6 +1,6 @@
 # OhWangAgent 架构文档
 
-> 版本：v0.3.0 · 对应代码提交 `8775ee3` · 464 测试全绿
+> 版本：v0.3.0 · 对应代码提交 `8775ee3`（2026-08-02 实测修复批次见 §3.4/3.5/3.8）· 474 测试全绿
 > （覆盖率 91%，实测命令：`coverage run --source=ohwang -m pytest` + `coverage report --omit="ohwang/tui/widgets/*"`）
 >
 > 定位：交互式 CLI **办公 agent** —— 文档撰写、会议纪要、资料检索、任务管理、
@@ -191,21 +191,25 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 ### 3.4 权限系统（`ohwang/permissions.py` + `modes.py`）
 
 - 四种模式：`DEFAULT`（按 default_permission + ask 回调）、`PLAN`（只读，
-  仅 `allow` 工具通过）、`AUTO`（全部放行）、`BYPASS`（完全跳过）。
+  仅 `allow` 工具与声明了 `read_only_actions` 的工具通过，`exit_plan_mode`
+  退出读保护模式需用户批准）、`AUTO`（全部放行）、`BYPASS`（完全跳过）。
 - 规则（`.ohwang/settings.json`）：`allow/ask/deny` 三列表，支持 glob
   （如 `mcp__*`），优先级 **deny > allow > ask > 工具默认**，且 deny 优先于
   always 记忆。
 - `always` 记忆：用户对某调用回答 "always" 后，按 `工具名::参数` 签名
   永久放行；退出 PLAN 模式自动还原进入前的模式。
+- PLAN 模式特判（实测修复）：`exit_plan_mode` 走 `_ask_approved` 用户批准
+  （非交互 stdin 默认 deny，读保护模式不可被模型自行退出）；`config` 的
+  `list/get` 只读动作放行，`allow/remove` 等变更动作仍拦截。
 
 ### 3.5 服务层（`ohwang/services/`）
 
 | 服务 | 职责 | 数据 |
 | :--- | :--- | :--- |
 | `MemoryStore` | 持久记忆 | `CLAUDE.md`/`AGENTS.md` + `.ohwang/memory/facts.json` |
-| `MemoryExtractor` | 会话增长 ≥10 条时让模型提炼事实自动入库 | — |
+| `MemoryExtractor` | 会话增长 ≥20 条时让模型提炼事实自动入库；提取提示排除单会话临时内容（会议记录/一次性数据图表） | `.ohwang/memory/facts.json` |
 | `HookManager` | pre/post tool + notif 生命周期钩子 | `.ohwang/hooks.json` 命令钩子 |
-| `PolicyLimits` | 工具调用总量/单工具上限，防失控循环 | `.ohwang/policy.json` |
+| `PolicyLimits` | 工具调用总量/单工具上限，防失控循环；总量默认 200，**被权限拒绝的调用也计入预算**（防拒绝后无限重试） | `.ohwang/policy.json` |
 | `UsageTracker` | 工具调用统计（`/summary`、brief 工具） | 内存 |
 | `Compactor` | 超阈值上下文压缩 | — |
 | `SessionStore` | 会话保存/resume | `.ohwang/sessions/*.json` |
@@ -236,6 +240,11 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 
 ### 3.8 CLI 装配（`ohwang/cli.py`）
 
+- `main()` 先 `_prepare_workdir(args)`：`chdir` 到 `--workdir` 并把 `args.workdir`
+  规范化为绝对路径（服务层相对 cwd 二次解析会嵌套 `.ohwang/`）；`build_agent`
+  再兜底 `abspath(args.workdir or cwd)`。
+- 非交互一次性任务（`-p`）且未给 `-y`/`--plan` 时，stderr 打印提示（非交互
+  stdin 下 ask 工具默认 deny，可能让工具全部被拒）。
 - `build_agent(args, run_lock)`：**`main` 传入唯一 `run_lock`**，REPL 前台与
   cron 调度后台共用，避免并发 `run()` 污染 `messages`；`scheduler.start()` 在
   `agent` 装配完成后才调用。
@@ -282,7 +291,7 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 
 ---
 
-## 6. 测试架构（`tests/`，46 个文件 / 464 个用例，覆盖率 91%）
+## 6. 测试架构（`tests/`，46 个文件 / 474 个用例，覆盖率 91%）
 
 - `helpers.py`：`ScriptedProvider`（重放事件序列）、`MockSearchProvider`、
   `build_agent()`——无网络、无真实模型的集成测试基座。
@@ -292,9 +301,11 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   policy/compactor/usage/hooks。
 - 覆盖：工具单元测试、provider 转换、权限/plan 模式、压缩、会话、记忆/记忆提取、
   hooks/policy/usage、调度、worktree、MCP、Skill/Plugin、办公场景
-  （`test_scenarios.py`）、P3 新工具、以及本轮新增：`test_file_diff.py`、
+  （`test_scenarios.py`）、P3 新工具、以及新增：`test_file_diff.py`、
   `test_multi_edit.py`、`test_send_user_file.py`、`test_tasks.py`、
-  `test_verify_plan.py`、`test_tui.py`。
+  `test_verify_plan.py`、`test_tui.py`、`test_fixes_review.py`（真实办公场景
+  实测修复批次回归：workdir 规范化/权限硬边界/plan 退出批准/config 只读/
+  记忆阈值/非交互告警）。
 - 覆盖率 91%（`coverage run --source=ohwang -m pytest` 后
   `coverage report --omit="ohwang/tui/widgets/*"` 实测；按模块补齐：
   `test_providers.py`、`test_mcp.py`、`test_browser.py`、`test_lsp.py`、
