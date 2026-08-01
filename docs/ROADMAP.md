@@ -1,94 +1,41 @@
 # OhWangAgent — 架构对比与演进路线图
 
-> 基于对 Claude Code 公开泄露源码（`v2.1.88`，`Anthropic-Leaked-Source-Code`，1903 文件）的结构扫描，
-> 对比 OhWangAgent 当前 MVP（`v0.2.0`，~40 文件）的能力差距，给出分阶段实现计划。
+> 基于对 Claude Code 泄露源码（`v2.1.88`，`Anthropic-Leaked-Source-Code`，1903 文件）的结构扫描，
+> 与 OhWangAgent 当前实现（`v0.3.0`，88 个 Python 文件，180 测试全绿）对比，给出修正后的演进计划。
+>
+> **定位**：办公 agent（办公 Agent）——文档处理、会议纪要、资料检索、任务管理、报告撰写 + 软件工程能力。
 
 ---
 
-## 1. 扫描方法
+## 1. 当前能力盘点（2026-08 实测）
 
-对泄露源码做了三层扫描：
-1. **顶层目录统计**：36 个子目录，记录每个目录的文件数/子目录数。
-2. **注册表读取**：`tools.ts`（389 行，工具注册 + feature flag 网关）、`commands.ts`、`services/` 子目录、`skills/`、`memdir/`、`coordinator/`、`bridge/`、`hooks/`。
-3. **能力归纳**：从命名 + 注册逻辑提炼功能域。
-
----
-
-## 2. Claude Code 架构全景（扫描结果）
-
-### 2.1 工具层（`tools/`，184 文件，42 个 tool）
-
-按功能域分组（许多受 feature flag 控制）：
+### 1.1 工具层（24 个）
 
 | 域 | 工具 |
 | :--- | :--- |
-| 文件/Shell | BashTool, FileReadTool, FileEditTool, FileWriteTool, GlobTool, GrepTool, NotebookEditTool, PowerShellTool |
-| Web | WebFetchTool, WebSearchTool, WebBrowserTool(feature) |
-| 子 Agent / 任务 | AgentTool, TaskOutputTool, TaskStopTool, TaskCreate/Get/Update/List(todo v2), TeamCreate/Delete(swarms), SendMessageTool, ListPeersTool |
-| 规划 | EnterPlanModeTool, ExitPlanModeV2Tool, VerifyPlanExecutionTool |
-| MCP | ListMcpResourcesTool, ReadMcpResourceTool, MCPTool |
-| LSP | LSPTool |
-| Skills | SkillTool |
-| Worktree | EnterWorktreeTool, ExitWorktreeTool |
-| 主动/调度 | SleepTool, CronCreate/Delete/List, RemoteTriggerTool, MonitorTool |
-| 其他 | AskUserQuestionTool, ConfigTool, BriefTool, SyntheticOutputTool, ToolSearchTool, SnipTool, SendUserFileTool, PushNotificationTool, SubscribePRTool, REPLTool, WorkflowTool, TerminalCaptureTool |
+| 文件/Shell | bash, powershell, file_read, file_write, file_edit, grep, glob |
+| Web | web_fetch, web_search, browser_action(Playwright, 按 flag) |
+| 记忆/任务 | memory_read, memory_write, todo_write |
+| 规划/协作 | enter_plan_mode, exit_plan_mode, agent(子 agent) |
+| 主动/调度 | cron_create, cron_delete, cron_list |
+| MCP | load_mcp_tools（CLI 接入） |
+| 其他 | ask_user_question, tool_search, lsp_diagnose, enter_worktree, exit_worktree |
 
-### 2.2 服务层（`services/`，130 文件，20 子系统）
+### 1.2 服务层（11 个）
 
-`api`、`compact`（上下文压缩）、`extractMemories`、`SessionMemory`、`mcp`、`oauth`、`lsp`、`plugins`、`policyLimits`（策略执行）、`PromptSuggestion`、`remoteManagedSettings`、`settingsSync`、`teamMemorySync`、`tools`、`toolUseSummary`、`AgentSummary`、`analytics`、`tips`、`autoDream`、`MagicDocs`。
+compact（上下文压缩）、session（会话/resume）、tokens（token 估算）、settings（权限规则文件）、
+search（DuckDuckGo/Tavily）、mcp、worktree、scheduler（cron）、browser、memory（持久记忆）、lsp。
 
-### 2.3 其他核心系统
+### 1.3 其他系统
 
-| 目录 | 作用 |
-| :--- | :--- |
-| `coordinator/` | 多 agent 协调 / swarm 模式 |
-| `memdir/` | 持久化记忆：相关性检索、记忆扫描、团队记忆 |
-| `skills/` | 技能工作流：bundled skills（debug/loop/simplify/verify/remember…）+ 用户技能加载 |
-| `bridge/`(31) | IDE 双向通信（VS Code/JetBrains）：消息协议、权限回调、JWT、会话控制 |
-| `plugins/` | 插件系统 |
-| `hooks/` | toolPermission / notifs 钩子 |
-| `remote/` `server/` | 远程会话 / server 模式 |
-| `context/` `screens/` `components/`(389) `ink/` | React+Ink 终端 UI |
-| `keybindings/` `vim/` `voice/` `buddy/` `outputStyles/` | 输入/交互增强 |
-| `tasks/` `state/` `migrations/` `schemas/` | 状态/任务/配置迁移/Zod schema |
-| `utils/`(564) | 庞大工具层 |
-
-### 2.4 横切机制
-
-- **权限系统**：Default / Plan / Auto / Bypass 四模式；deny 规则；MCP 前缀规则；permission context。
-- **Feature flags**（GrowthBook + `bun:bundle` 编译期消除）：PROACTIVE、KAIROS、COORDINATOR_MODE、AGENT_SWARMS、WORKTREE_MODE、WORKFLOW_SCRIPTS、WEB_BROWSER_TOOL、TOOL_SEARCH、TODO_V2、HISTORY_SNIP 等 ~20 个。
+- **权限**：Default / Plan / Auto / Bypass 四模式 + `.ohwang/settings.json` allow/ask/deny 通配 + always 记忆 + plan 模式还原
+- **Provider**：anthropic / openai / zhipu / deepseek(v4-flash|v4-pro) / kimi / qwen（6 家，均 OpenAI 兼容或直连）
+- **Feature flag**：`flags.py` 环境变量 + `.ohwang/flags.json` 三级覆盖
+- **Skills / Plugins / LSP / 持久记忆 / 完整 TUI(Textual)**：✅
 
 ---
 
-## 3. OhWangAgent 当前状态（v0.2.0）
-
-| 能力 | 状态 |
-| :--- | :--- |
-| Agent 循环（LLM↔tool_call） | ✅ `agent.py`，已 Mock 验证 |
-| 工具 | ✅ 12 个：bash / file_read / file_write / file_edit / grep / glob / web_fetch / web_search / todo_write / enter_plan_mode / exit_plan_mode / lsp_diagnose |
-| 多模型 Provider | ✅ Anthropic + OpenAI 兼容（base_url）+ 智谱 (zhipu) |
-| 权限系统 | ✅ allow/ask/deny + always 记忆 + 规则文件 |
-| CLI/REPL | ✅ Rich 流式 + `/help /tools /clear /auto /mode /model /todo /save /resume /exit` |
-| system prompt | ✅ `prompts.py` |
-| 上下文压缩 | ✅ `services/compact.py` |
-| 会话持久化 / resume | ✅ `services/session.py` |
-| Plan 模式 | ✅ `modes.py` + `tools/plan_mode.py` |
-| Token 估算 | ✅ `services/tokens.py` |
-| WebFetch | ✅ `tools/web_fetch.py` (httpx + markdownify) |
-| WebSearch | ✅ `tools/web_search.py` (DuckDuckGo / Tavily) |
-| AskUserQuestion | ✅ `tools/ask_user.py` |
-| AgentTool 子 agent | ✅ `tools/agent_tool.py` |
-| MCP 客户端 | ✅ `services/mcp.py` + CLI 接入 |
-| Skill 系统 | ✅ `skills/` + bundled (debug/verify/simplify/remember) |
-| Plugin 系统 | ✅ `plugins/loader.py` + entry_point 注册 |
-| LSP 集成 | ✅ `services/lsp.py` + `tools/lsp_diagnose.py` |
-| 持久记忆 memdir | ✅ `services/memory.py` + CLAUDE.md 风格 |
-| Feature flag 体系 | ✅ `flags.py` + 环境变量 + .ohwang/flags.json |
-| 完整 TUI (Textual) | ✅ `tui/widgets/app.py` |
-
----
-
-## 4. 能力差距矩阵
+## 2. 能力差距矩阵（对 Claude Code）
 
 图例：✅ 已有 · ❌ 缺失 · ⚠️ 部分
 
@@ -96,102 +43,103 @@
 | :--- | :---: | :---: | :---: |
 | Agent 循环 | ✅ | ✅ | — |
 | 基础文件/Shell 工具 | ✅ | ✅ | — |
-| 上下文压缩 compact | ✅ | ✅ | — |
+| PowerShell / Notebook | ✅ | ⚠️ 仅 PowerShell | P4 |
+| 上下文压缩 | ✅ | ✅ | — |
 | TodoWrite 任务追踪 | ✅ | ✅ | — |
+| **Task v2（Create/Get/Update/List/Stop/Output）** | ✅ | ❌ | P3 |
 | 会话历史 / resume | ✅ | ✅ | — |
 | Plan 模式 | ✅ | ✅ | — |
-| WebFetch / WebSearch | ✅ | ✅ | — |
+| **VerifyPlanExecutionTool** | ✅ | ❌ | P3 |
+| WebFetch / WebSearch / Browser | ✅ | ✅ | — |
 | AskUserQuestion | ✅ | ✅ | — |
 | AgentTool 子 agent | ✅ | ✅ | — |
-| MCP 客户端 | ✅ | ✅ | — |
+| MCP 客户端 | ✅ | ⚠️ 无 resource 工具 | P4 |
 | 权限规则文件 | ✅ | ✅ | — |
-| Skill 系统 | ✅ | ✅ | — |
-| Plugin 系统 | ✅ | ✅ | — |
-| LSP 集成 | ✅ | ✅ | — |
-| 持久记忆 memdir | ✅ | ✅ | — |
-| Feature flag 体系 | ✅ | ✅ | — |
-| 完整 TUI（Textual） | ✅ | ✅ | — |
-| **IDE bridge** | ✅ | ❌ | P3 |
-| **Coordinator / swarm 多 agent** | ✅ | ❌ | P3 |
-| **主动模式 / cron / 远程触发** | ✅ | ❌ | P3 |
-| **Voice / Vim / Buddy** | ✅ | ❌ | P3 |
-| **OAuth 认证流** | ✅ | ❌ | P3 |
-| **Analytics / 遥测** | ✅ | ❌ | P3 |
-| **Worktree 模式** | ✅ | ❌ | P3 |
-| **Web Browser Tool** | ✅ | ❌ | P3 |
+| Skill / Plugin / LSP / 记忆 | ✅ | ✅ | — |
+| Feature flag / TUI | ✅ | ✅ | — |
+| Worktree | ✅ | ✅ | — |
+| Cron 调度 | ✅ | ✅ | — |
+| **Sleep / Monitor / RemoteTrigger** | ✅ | ❌ | P3 |
+| **ToolSearch** | ✅ | ✅ | — |
+| **SyntheticOutput / Brief / Snip / SendUserFile** | ✅ | ❌ | P3 |
+| **ConfigTool** | ✅ | ❌ | P3 |
+| **自动记忆提取（extractMemories）** | ✅ | ❌ | **P3-高** |
+| **hooks（preToolUse/postToolUse/notifs）** | ✅ | ❌ | **P3-高** |
+| **toolUseSummary / AgentSummary** | ✅ | ❌ | P3 |
+| **policyLimits 策略执行** | ✅ | ❌ | P3 |
+| **PromptSuggestion** | ✅ | ❌ | P3 |
+| IDE bridge / swarm / OAuth / 遥测 | ✅ | ❌ | P4 |
 
 ---
 
-## 5. 演进路线图（分阶段）
+## 3. 修正后演进路线图
 
-### ✅ 阶段 1 — 核心完整度（P0）— 已完成
+> 按「办公 agent」定位重新排序：记忆连续性与机制完备优先，平台化按需。
 
-| # | 任务 | 文件 | 状态 |
+### ✅ P0 — 核心完整度（已完成）
+
+compact、todo_write、session/resume、plan mode、token 估算、权限四模式+规则文件。
+
+### ✅ P1 — 能力扩展（已完成）
+
+web_fetch、web_search、ask_user、agent、mcp 客户端、settings 权限文件、web_fetch。
+
+### ✅ P2 — 扩展机制与体验（已完成）
+
+skill、plugin、lsp、memdir 记忆、feature flag、Textual TUI、powerShell、tool_search、worktree、cron 调度、browser(flag)、DeepSeek v4 provider。
+
+### ✅ P3-A — 记忆与上下文（已完成）
+
+| # | 任务 | 说明 | 状态 |
 | :--- | :--- | :--- | :---: |
-| 1.1 | 上下文压缩 | `ohwang/services/compact.py` | ✅ |
-| 1.2 | TodoWrite 工具 | `ohwang/tools/todo.py` | ✅ |
-| 1.3 | 会话持久化 / resume | `ohwang/services/session.py` | ✅ |
-| 1.4 | Plan 模式 | `ohwang/modes.py` + `ohwang/tools/plan_mode.py` | ✅ |
-| 1.5 | Token 估算 | `ohwang/services/tokens.py` | ✅ |
+| 3A.1 | **自动记忆提取 extractMemories** | `MemoryExtractor` 会话/增长时提炼关键事实，自动写入 `.ohwang/memory/` | ✅ |
+| 3A.2 | **toolUseSummary / AgentSummary** | `UsageTracker` 工具调用统计 + `/summary` 命令 | ✅ |
+| 3A.3 | PromptSuggestion | 会话首轮提示用户可用的记忆/快捷命令 | 📋 |
 
-### ✅ 阶段 2 — 能力扩展（P1）— 已完成
+### ✅ P3-B — 钩子与策略（已完成）
 
-| # | 任务 | 文件 | 状态 |
+| # | 任务 | 说明 | 状态 |
 | :--- | :--- | :--- | :---: |
-| 2.1 | WebFetch 工具 | `ohwang/tools/web_fetch.py` (httpx + markdownify) | ✅ |
-| 2.2 | WebSearch 工具 | `ohwang/tools/web_search.py` + `ohwang/services/search.py` | ✅ |
-| 2.3 | AskUserQuestion 工具 | `ohwang/tools/ask_user.py` | ✅ |
-| 2.4 | AgentTool 子 agent | `ohwang/tools/agent_tool.py` | ✅ |
-| 2.5 | MCP 客户端 | `ohwang/services/mcp.py` | ✅ |
-| 2.6 | 权限规则文件 | `ohwang/services/settings.py` | ✅ |
+| 3B.1 | **hooks 系统** | `HookManager`：pre/post tool + notif，`.ohwang/hooks.json` 命令钩子 | ✅ |
+| 3B.2 | **policyLimits** | `PolicyLimits`：工具调用频率/总量上限，`.ohwang/policy.json` | ✅ |
+| 3B.3 | **ConfigTool** | 运行时读写 `.ohwang/settings.json` 权限规则（`config` 工具） | ✅ |
 
-### ✅ 阶段 3 — 扩展机制与体验（P2）— 已完成
+### 📋 P3-C — 输出与展示
 
-| # | 任务 | 文件 | 状态 |
-| :--- | :--- | :--- | :---: |
-| 3.1 | Skill 系统 | `ohwang/skills/` + bundled | ✅ |
-| 3.2 | Plugin 系统 | `ohwang/plugins/loader.py` | ✅ |
-| 3.3 | LSP 集成 | `ohwang/services/lsp.py` + `ohwang/tools/lsp_diagnose.py` | ✅ |
-| 3.4 | 持久记忆 memdir | `ohwang/services/memory.py` + `ohwang/tools/memory.py` | ✅ |
-| 3.5 | Feature flag 体系 | `ohwang/flags.py` | ✅ |
-| 3.6 | 完整 TUI | `ohwang/tui/widgets/app.py` (Textual) | ✅ |
-
-### 阶段 4 — 平台化（P3，按需）
-
-| # | 任务 | 设计要点 |
+| # | 任务 | 说明 |
 | :--- | :--- | :--- |
-| 4.1 | IDE bridge | VS Code / JetBrains 扩展：消息协议、权限回调、会话控制 |
-| 4.2 | Coordinator / swarm | 多 agent 团队模式：TeamCreate/Delete, SendMessage, ListPeers |
-| 4.3 | 主动模式 | CronCreate/Delete/List, RemoteTrigger, Monitor |
-| 4.4 | Worktree | git worktree 隔离：EnterWorktree / ExitWorktree |
-| 4.5 | Web Browser | Playwright / Puppeteer 驱动的浏览器工具 |
-| 4.6 | OAuth 认证流 | Provider OAuth 登录 + token 刷新 |
-| 4.7 | Analytics 遥测 | 使用统计 + 成本追踪 |
-| 4.8 | Voice / Vim / Buddy | 输入/交互增强 |
+| 3C.1 | SyntheticOutputTool | 向用户展示一段文本（不进入上下文） |
+| 3C.2 | BriefTool | 生成会话进度简报 |
+| 3C.3 | SleepTool | 主动模式下延时等待 — ✅ 已实现 |
+| 3C.4 | SnipTool | 截取并保存终端输出片段 |
+
+### 📋 P3-D — 任务与协作增强
+
+| # | 任务 | 说明 |
+| :--- | :--- | :--- |
+| 3D.1 | Task v2（Create/Get/Update/List/Stop/Output） | 结构化任务对象替代纯 todo 列表 |
+| 3D.2 | VerifyPlanExecutionTool | 计划完成后校验执行结果 |
+
+### 📋 P4 — 平台化（按需）
+
+IDE bridge、Coordinator/swarm、OAuth、遥测分析、NotebookEdit、MCP resource、remote/server。
 
 ---
 
-## 6. 架构对齐建议（仿 Claude Code 的关键设计）
-
-1. **统一 tool 契约**：保持 `BaseTool{name, description, input_schema, default_permission, execute}` 不变，新 tool 一律子类化注册——已与 Claude Code 一致。
-2. **Provider 事件流抽象**：`BaseProvider.chat` 产出统一 `{text, tool_use, stop}` 事件，Provider 负责转换——已对齐，新增 provider 只需实现 `chat`。
-3. **权限分层**：把当前内存规则升级为「规则文件 + 模式（Default/Plan/Auto/Bypass）+ 通配匹配」，对齐 Claude Code 的 permission context。
-4. **Feature flag 门控**：工具注册改为 `feature()` 条件注册，便于实验性能力开关。
-5. **服务化**：把 compact/session/memory/mcp/lsp 拆为 `services/` 下独立模块，Agent 持有服务引用而非内联逻辑。
-6. **状态外置**：会话/任务/记忆持久化到 `.ohwang/`，支持 resume 与跨会话。
-
----
-
-## 7. 建议执行顺序
+## 4. 执行顺序（修订）
 
 ```
-✅ 阶段1 (P0) compact → todo → session/resume → plan mode → token估算
-    ↓
-✅ 阶段2 (P1) webfetch → askuser → agenttool → mcp → 权限规则文件
-    ↓
-✅ 阶段3 (P2) skill → plugin → lsp → memdir → flag体系 → TUI
-    ↓
-阶段4 (P3) 按需平台化
+✅ P0 → P1 → P2（记忆/工具/机制完备，180 测试）
+   ↓
+✅ P3-A 自动记忆提取 → 使用摘要        （MemoryExtractor + /summary）
+   ↓
+✅ P3-B hooks 系统 → policyLimits → ConfigTool   （212 测试全绿）
+   ↓
+📋 P3-C 输出展示工具（SyntheticOutput/Brief/Snip + SleepTool✅）
+   ↓
+📋 P3-D Task v2 → VerifyPlanExecution
+   ↓
+📋 P4 平台化（按需）
 ```
 
-每个阶段完成后跑 `tests/` 回归 + 真实模型端到端验证，再进入下一阶段。
+每批完成后跑 `tests/` 回归 + 真实模型端到端验证，再进入下一批。

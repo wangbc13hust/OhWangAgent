@@ -8,10 +8,27 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 
+def setup_utf8() -> None:
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+    except Exception:
+        pass
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream is not None:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 class Renderer:
     def __init__(self) -> None:
-        force_utf8 = sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8"
-        self.console = Console(force_terminal=True) if force_utf8 else Console()
+        setup_utf8()
+        self.console = Console()
         self._buffer: list[str] = []
 
     def _flush(self) -> None:

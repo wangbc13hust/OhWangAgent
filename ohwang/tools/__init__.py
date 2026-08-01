@@ -36,6 +36,8 @@ def default_tools(
     from .grep import GrepTool
     from .powershell import PowerShellTool
     from .tool_search import ToolSearchTool
+    from .sleep import SleepTool
+    from .config import ConfigTool
     from .web_fetch import WebFetchTool
     from .web_search import WebSearchTool
 
@@ -49,10 +51,12 @@ def default_tools(
         GlobTool(),
         WebFetchTool(),
         PowerShellTool(),
+        SleepTool(),
     ):
         registry.register(tool)
 
     registry.register(ToolSearchTool(registry))
+    registry.register(ConfigTool(workdir or os.getcwd(), permissions))
 
     if search_provider is not None:
         registry.register(WebSearchTool(search_provider))

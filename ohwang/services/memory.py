@@ -5,6 +5,15 @@ import os
 from pathlib import Path
 from typing import Optional
 
+_MEMORY_EXTRACTION_PROMPT = """You are a memory extraction service. Analyze the conversation and
+extract up to 10 durable facts worth remembering across sessions. Focus on:
+project decisions, conventions, user preferences, key parameters, and gotchas.
+Do NOT include one-off, trivial, or already-known facts.
+Return ONLY a JSON array, no markdown, no commentary:
+[{"key": "short_snake_key", "value": "one sentence fact", "tags": ["decision"]}]
+If nothing is worth saving, return [].
+"""
+
 
 class MemoryStore:
     """Persistent project memory stored in .ohwang/memory/.
@@ -102,3 +111,78 @@ class MemoryStore:
         path.write_text(
             json.dumps(facts, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+
+    def import_facts(self, facts: list[dict]) -> int:
+        """Merge extracted facts into the store. Returns the number added."""
+        added = 0
+        for f in facts:
+            key = str(f.get("key", "")).strip()
+            value = str(f.get("value", "")).strip()
+            if not key or not value:
+                continue
+            tags = [str(t) for t in f.get("tags", []) if str(t).strip()]
+            if self.get_fact(key) != value:
+                self.add_fact(key, value, tags)
+                added += 1
+        return added
+
+
+class MemoryExtractor:
+    """Auto-extract durable facts from a conversation via the provider.
+
+    `maybe_extract` only re-runs after the conversation grows by
+    `growth_threshold` messages since the last extraction.
+    """
+
+    def __init__(self, store: MemoryStore, growth_threshold: int = 10) -> None:
+        self._store = store
+        self._growth_threshold = growth_threshold
+        self._last_count = 0
+
+    def extract(self, provider, messages: list[dict]) -> int:
+        """Ask the provider to summarize facts and persist them."""
+        try:
+            text_parts: list[str] = []
+            for event in provider.chat(
+                system=_MEMORY_EXTRACTION_PROMPT,
+                messages=list(messages)[-30:],
+                tools=[],
+                max_tokens=2000,
+            ):
+                if event.get("type") == "text":
+                    text_parts.append(event["text"])
+            payload = "".join(text_parts)
+        except Exception:
+            return 0
+
+        facts = self._parse(payload)
+        return self._store.import_facts(facts)
+
+    def maybe_extract(self, provider, messages: list[dict]) -> int:
+        if len(messages) - self._last_count < self._growth_threshold:
+            return 0
+        added = self.extract(provider, messages)
+        self._last_count = len(messages)
+        return added
+
+    @staticmethod
+    def _parse(payload: str) -> list[dict]:
+        payload = payload.strip()
+        if not payload:
+            return []
+        if payload.startswith("```"):
+            payload = payload.strip("`")
+            payload = payload.removeprefix("json").strip()
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            start, end = payload.find("["), payload.rfind("]")
+            if start == -1 or end == -1:
+                return []
+            try:
+                data = json.loads(payload[start : end + 1])
+            except json.JSONDecodeError:
+                return []
+        if not isinstance(data, list):
+            return []
+        return [d for d in data if isinstance(d, dict)]

@@ -23,6 +23,9 @@ class Agent:
         system: str,
         todo_store: Optional[TodoStore] = None,
         compactor: Optional[Compactor] = None,
+        hooks=None,
+        policy=None,
+        usage=None,
     ) -> None:
         self.provider = provider
         self.tools = tools
@@ -31,6 +34,9 @@ class Agent:
         self.system = system
         self.todo_store = todo_store
         self.compactor = compactor
+        self.hooks = hooks
+        self.policy = policy
+        self.usage = usage
         self.messages: list[dict] = []
         self.iterations = 0
 
@@ -135,6 +141,16 @@ class Agent:
                 "is_error": True,
             }
 
+        if self.hooks is not None:
+            allowed, reason, input_ = self.hooks.run_pre_tool(name, input_)
+            if not allowed:
+                return {
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": f"Blocked by hook: {reason}",
+                    "is_error": True,
+                }
+
         if not self.permissions.can_run(tool, input_):
             return {
                 "type": "tool_result",
@@ -143,18 +159,34 @@ class Agent:
                 "is_error": True,
             }
 
+        if self.policy is not None and not self.policy.check_tool(name):
+            return {
+                "type": "tool_result",
+                "tool_use_id": tool_id,
+                "content": f"Policy limit reached for tool '{name}'.",
+                "is_error": True,
+            }
+
         try:
             result: ToolResult = tool.execute(input_)
-            return {
+            block = {
                 "type": "tool_result",
                 "tool_use_id": tool_id,
                 "content": result.content,
                 "is_error": result.is_error,
             }
         except Exception as exc:
-            return {
+            block = {
                 "type": "tool_result",
                 "tool_use_id": tool_id,
                 "content": f"Tool raised: {type(exc).__name__}: {exc}",
                 "is_error": True,
             }
+
+        if self.policy is not None:
+            self.policy.record(name)
+        if self.usage is not None:
+            self.usage.record(name, block["is_error"])
+        if self.hooks is not None:
+            self.hooks.run_post_tool(name, block)
+        return block

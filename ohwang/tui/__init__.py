@@ -1,3 +1,3 @@
-from .render import Renderer
+from .render import Renderer, setup_utf8
 
-__all__ = ["Renderer"]
+__all__ = ["Renderer", "setup_utf8"]

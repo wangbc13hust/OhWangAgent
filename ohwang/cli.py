@@ -12,12 +12,20 @@ from .modes import Mode
 from .permissions import PermissionManager
 from .prompts import build_system_prompt
 from .providers import create_provider
-from .services import Compactor, SessionStore
+from .services import (
+    Compactor,
+    HookManager,
+    MemoryExtractor,
+    MemoryStore,
+    PolicyLimits,
+    SessionStore,
+    UsageTracker,
+)
 from .services.scheduler import Scheduler
 from .services.settings import load_settings
 from .tools import default_tools
 from .tools.todo import TodoStore
-from .tui import Renderer
+from .tui import Renderer, setup_utf8
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -169,6 +177,17 @@ def build_agent(args: argparse.Namespace):
     compactor = Compactor(threshold_tokens=config.compact_threshold)
     session_store = SessionStore(config.workdir)
 
+    usage = UsageTracker()
+    hooks = HookManager(config.workdir)
+    loaded_hooks = hooks.load_json()
+    policy = PolicyLimits.load(config.workdir)
+    if loaded_hooks:
+        renderer.info(f"Loaded {loaded_hooks} hook(s) from .ohwang/hooks.json.")
+    memory_store = MemoryStore(config.workdir)
+    memory_extractor = (
+        MemoryExtractor(memory_store) if flags.is_enabled("memory") else None
+    )
+
     agent = Agent(
         provider,
         tools,
@@ -177,11 +196,20 @@ def build_agent(args: argparse.Namespace):
         system_prompt,
         todo_store=todo_store,
         compactor=compactor,
+        hooks=hooks,
+        policy=policy,
+        usage=usage,
     )
-    return agent, renderer, config, session_store, scheduler
+    return agent, renderer, config, session_store, scheduler, memory_extractor, flags
 
 
-def _run_once(agent: Agent, renderer: Renderer, prompt: str, run_lock: Lock) -> None:
+def _run_once(
+    agent: Agent,
+    renderer: Renderer,
+    prompt: str,
+    run_lock: Lock,
+    memory_extractor=None,
+) -> None:
     with run_lock:
         try:
             agent.run(
@@ -196,6 +224,13 @@ def _run_once(agent: Agent, renderer: Renderer, prompt: str, run_lock: Lock) -> 
         except Exception as exc:
             renderer.warn(f"Error: {exc}")
     renderer.end_turn()
+    if memory_extractor is not None and agent.messages:
+        try:
+            added = memory_extractor.maybe_extract(agent.provider, agent.messages)
+            if added:
+                renderer.info(f"Auto-saved {added} memory fact(s).")
+        except Exception:
+            pass
 
 
 def _cmd_resume(agent, renderer, session_store):
@@ -248,12 +283,13 @@ def repl(
     flags: FeatureFlags,
     run_lock: Lock,
     one_shot: str | None,
+    memory_extractor=None,
 ) -> None:
     renderer.info(f"OhWangAgent — provider={config.provider} model={config.model} mode={agent.permissions.mode.label}")
     renderer.info("Type /help for commands, /exit to quit.")
 
     if one_shot:
-        _run_once(agent, renderer, one_shot, run_lock)
+        _run_once(agent, renderer, one_shot, run_lock, memory_extractor)
         return
 
     while True:
@@ -299,10 +335,14 @@ def repl(
             from .services.worktree import WorktreeManager
             renderer.info(WorktreeManager(config.workdir).list() or "(none)")
             continue
+        if line == "/summary":
+            renderer.info(agent.usage.report() if agent.usage else "Usage tracking off.")
+            renderer.info(f"Iterations: {agent.iterations}  Messages: {len(agent.messages)}")
+            continue
         if line == "/help":
             renderer.info(
                 "Commands: /help /tools /flags /cron [/cron <id> '<expr>' '<prompt>'] "
-                "/worktree /clear /auto /mode /model <id> /todo /save /resume /exit"
+                "/worktree /summary /clear /auto /mode /model <id> /todo /save /resume /exit"
             )
             continue
         if line == "/auto":
@@ -328,18 +368,28 @@ def repl(
             agent.provider.model = new_model
             renderer.info(f"Model set to {new_model}.")
             continue
-        _run_once(agent, renderer, line, run_lock)
+        _run_once(agent, renderer, line, run_lock, memory_extractor)
 
 
 def main(argv=None) -> int:
+    setup_utf8()
     args = parse_args(argv)
     if args.workdir:
         os.chdir(args.workdir)
-    agent, renderer, config, session_store, scheduler = build_agent(args)
-    flags = FeatureFlags(config.workdir)
+    agent, renderer, config, session_store, scheduler, memory_extractor, flags = build_agent(args)
     run_lock = Lock()
     try:
-        repl(agent, renderer, config, session_store, scheduler, flags, run_lock, one_shot=args.prompt)
+        repl(
+            agent,
+            renderer,
+            config,
+            session_store,
+            scheduler,
+            flags,
+            run_lock,
+            one_shot=args.prompt,
+            memory_extractor=memory_extractor,
+        )
     finally:
         scheduler.stop()
     return 0
