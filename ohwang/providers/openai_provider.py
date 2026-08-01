@@ -97,7 +97,7 @@ class OpenAIProvider(BaseProvider):
         client_kwargs = {"api_key": api_key}
         if base_url:
             client_kwargs["base_url"] = base_url
-        self.client = OpenAI(**client_kwargs)
+        self.client = OpenAI(timeout=60, max_retries=2, **client_kwargs)
 
     def chat(
         self,
@@ -118,7 +118,13 @@ class OpenAIProvider(BaseProvider):
         if tools:
             kwargs["tools"] = _convert_tools(tools)
 
-        stream = self.client.chat.completions.create(**kwargs)
+        try:
+            stream = self.client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            raise RuntimeError(
+                f"API request failed (provider={self.name}, model={self.model}): "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
 
         tool_acc: dict[int, dict] = {}
         for chunk in stream:

@@ -181,7 +181,7 @@ ohwang/
 | `SessionStore` | 会话保存/resume | `.ohwang/sessions/*.json` |
 | `Scheduler` | cron 调度，agent 空闲时可后台执行任务 | — |
 | `MCPClient` | 外部 MCP 服务器工具 | `.ohwang/mcp.json` |
-| `SearchProvider` | DuckDuckGo / Tavily | — |
+| `SearchProvider` | DuckDuckGo / Tavily（后端不可达时抛 `SearchError`，供工具明确报错） | — |
 | `WorktreeManager` | git worktree | — |
 | `BrowserSession` | Playwright 浏览器 | — |
 

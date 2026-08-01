@@ -10,12 +10,20 @@ from urllib.parse import unquote
 import httpx
 
 
+class SearchError(Exception):
+    """Raised when a search backend fails (network/HTTP), not when no results."""
+
+
 class SearchProvider(ABC):
     name = "base"
 
     @abstractmethod
     def search(self, query: str, max_results: int = 5) -> list[dict]:
-        """Return a list of {title, url, snippet} dicts."""
+        """Return a list of {title, url, snippet} dicts.
+
+        Raises SearchError when the backend is unreachable; returns [] only
+        when the query genuinely has no results.
+        """
 
 
 class DuckDuckGoSearch(SearchProvider):
@@ -29,11 +37,13 @@ class DuckDuckGoSearch(SearchProvider):
                 headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                 },
-                timeout=20,
+                timeout=15,
                 follow_redirects=True,
             )
-        except Exception:
-            return []
+        except Exception as exc:
+            raise SearchError(f"DuckDuckGo unreachable: {exc}") from exc
+        if resp.status_code != 200:
+            raise SearchError(f"DuckDuckGo returned HTTP {resp.status_code}")
         return self._parse(resp.text, max_results)
 
     @staticmethod
@@ -84,11 +94,12 @@ class TavilySearch(SearchProvider):
                     "query": query,
                     "max_results": max_results,
                 },
-                timeout=20,
+                timeout=15,
             )
+            resp.raise_for_status()
             data = resp.json()
-        except Exception:
-            return []
+        except Exception as exc:
+            raise SearchError(f"Tavily unreachable: {exc}") from exc
         return [
             {
                 "title": r.get("title", ""),

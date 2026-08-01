@@ -15,9 +15,10 @@ def setup_utf8() -> None:
         import ctypes
 
         ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        ctypes.windll.kernel32.SetConsoleCP(65001)
     except Exception:
         pass
-    for stream in (sys.stdout, sys.stderr):
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
         try:
             if stream is not None:
                 stream.reconfigure(encoding="utf-8", errors="replace")
