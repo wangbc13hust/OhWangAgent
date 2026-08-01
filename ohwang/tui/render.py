@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 
 from rich.console import Console
 from rich.markup import escape
@@ -67,20 +68,40 @@ class Renderer:
         setup_utf8()
         self.console = Console()
         self._buffer: list[str] = []
+        self._flush_at = 128
+        self._flush_every = 0.05
+        self._last_flush = time.time()
 
     def _flush(self) -> None:
         if self._buffer:
-            self.console.print("".join(self._buffer), end="", highlight=False)
+            sys.stdout.write("".join(self._buffer))
+            sys.stdout.flush()
             self._buffer.clear()
+            self._last_flush = time.time()
+
+    def _last_char(self) -> str:
+        if self._buffer:
+            return self._buffer[-1][-1:]
+        return ""
 
     def stream_text(self, text: str) -> None:
+        now = time.time()
         self._buffer.append(text)
+        buffered = sum(len(p) for p in self._buffer)
+        timed = now - self._last_flush >= self._flush_every
+        sentence_end = text.endswith(("\n", " ", "。", "！", "？", ".", "!", "?"))
+        if buffered >= self._flush_at or timed or sentence_end:
+            self._flush()
 
     def tool_call(self, tool_use: dict) -> None:
-        self._flush()
+        if self._buffer or self._last_char() not in ("", "\n"):
+            self._flush()
+        if self._last_char() != "\n":
+            sys.stdout.write("\n")
+            sys.stdout.flush()
         args = escape(json.dumps(tool_use.get("input", {}), ensure_ascii=False))
         self.console.print(
-            f"\n[bold yellow]>> {escape(tool_use['name'])}[/bold yellow] [dim]{args}[/dim]",
+            f"[bold yellow]>> {escape(tool_use['name'])}[/bold yellow] [dim]{args}[/dim]",
             highlight=False,
         )
 
@@ -92,7 +113,8 @@ class Renderer:
 
     def end_turn(self) -> None:
         self._flush()
-        self.console.print()
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
     def info(self, message: str) -> None:
         self.console.print(f"[dim]{escape(message)}[/dim]", highlight=False)

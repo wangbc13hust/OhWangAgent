@@ -135,3 +135,63 @@ def test_read_stdin_line_eof(monkeypatch):
     monkeypatch.setattr("ohwang.tui.render.sys.stdin", _Stdin())
     with pytest.raises(EOFError):
         read_stdin_line()
+
+
+def test_stream_text_small_chunks_buffered(monkeypatch):
+    out = []
+    monkeypatch.setattr("ohwang.tui.render.sys.stdout", _Capture(out))
+    r = _make_renderer()
+    r._flush_every = 999.0
+    r.stream_text("abc")
+    r.stream_text("def")
+    assert out == []
+
+
+def test_stream_text_sentence_end_flushes(monkeypatch):
+    out = []
+    monkeypatch.setattr("ohwang.tui.render.sys.stdout", _Capture(out))
+    r = _make_renderer()
+    r._flush_every = 999.0
+    r.stream_text("hello.")
+    assert out == ["hello."]
+
+
+def test_stream_text_big_chunk_flushes(monkeypatch):
+    out = []
+    monkeypatch.setattr("ohwang.tui.render.sys.stdout", _Capture(out))
+    r = _make_renderer()
+    r._flush_every = 999.0
+    r.stream_text("x" * 300)
+    assert out == ["x" * 300]
+
+
+def test_tool_call_adds_newline_before(monkeypatch):
+    out = []
+    monkeypatch.setattr("ohwang.tui.render.sys.stdout", _Capture(out))
+    r = _make_renderer()
+    r._flush_every = 999.0
+    r.stream_text("thinking")
+    r.tool_call({"name": "bash", "input": {"command": "ls"}})
+    written = "".join(out)
+    assert written.endswith("thinking\n")
+
+
+def test_end_turn_flushes_pending(monkeypatch):
+    out = []
+    monkeypatch.setattr("ohwang.tui.render.sys.stdout", _Capture(out))
+    r = _make_renderer()
+    r._flush_every = 999.0
+    r.stream_text("pending")
+    r.end_turn()
+    assert "pending" in "".join(out)
+
+
+class _Capture:
+    def __init__(self, sink):
+        self._sink = sink
+
+    def write(self, s):
+        self._sink.append(s)
+
+    def flush(self):
+        pass

@@ -96,7 +96,10 @@ class Agent:
                 if etype == "text":
                     text_parts.append(event["text"])
                     if on_text:
-                        on_text(event["text"])
+                        try:
+                            on_text(event["text"])
+                        except Exception:
+                            pass
                 elif etype == "tool_use":
                     tool_uses.append(event)
 
@@ -125,10 +128,16 @@ class Agent:
             result_blocks: list[dict] = []
             for tu in tool_uses:
                 if on_tool_call:
-                    on_tool_call(tu)
+                    try:
+                        on_tool_call(tu)
+                    except Exception:
+                        pass
                 block = self._run_tool(tu)
                 if on_tool_result:
-                    on_tool_result(tu["name"], block.get("is_error", False))
+                    try:
+                        on_tool_result(tu["name"], block.get("is_error", False))
+                    except Exception:
+                        pass
                 result_blocks.append(block)
             self.messages.append({"role": "user", "content": result_blocks})
 
