@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import httpx
 from markdownify import markdownify as md
 
@@ -28,6 +30,12 @@ class WebFetchTool(BaseTool):
     def execute(self, input: dict) -> ToolResult:
         url = input["url"]
         max_chars = input.get("max_chars", 20000)
+        scheme = urlparse(url).scheme.lower()
+        if scheme not in ("http", "https"):
+            return ToolResult(
+                content=f"Unsupported URL scheme '{scheme}': only http/https are allowed.",
+                is_error=True,
+            )
         try:
             resp = httpx.get(
                 url,

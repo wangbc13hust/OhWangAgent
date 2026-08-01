@@ -47,3 +47,12 @@ def test_web_fetch_schema():
     assert tool.name == "web_fetch"
     assert tool.default_permission == "allow"
     assert "url" in tool.input_schema["properties"]
+
+
+def test_web_fetch_rejects_non_http_scheme():
+    tool = WebFetchTool()
+    for url in ("file:///etc/passwd", "ftp://example.com/x", "javascript:alert(1)"):
+        r = tool.execute({"url": url})
+        assert r.is_error is True
+        assert "scheme" in r.content
+        assert "http" in r.content

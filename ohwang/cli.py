@@ -181,18 +181,28 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
     scheduler._runner = _run_locked
 
     def _agent_factory():
+        # Sub-agents get their own AUTO PermissionManager so plan-mode / config
+        # tools inside a sub-agent can never mutate the main agent's permission
+        # state; they also inherit policy/compactor/usage so they can't loop
+        # unbounded or blow past token budgets undetected.
+        sub_permissions = PermissionManager(mode=Mode.AUTO)
         return Agent(
             provider,
             default_tools(
                 todo_store=todo_store,
-                permissions=permissions,
+                permissions=sub_permissions,
                 memory_store=memory_store,
                 skill_loader=skill_loader,
                 task_store=task_store,
             ),
-            PermissionManager(mode=Mode.AUTO),
+            sub_permissions,
             config,
             system_prompt,
+            todo_store=todo_store,
+            compactor=compactor,
+            hooks=hooks,
+            policy=policy,
+            usage=usage,
             memory_store=memory_store,
         )
 

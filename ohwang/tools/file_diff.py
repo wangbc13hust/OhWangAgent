@@ -85,7 +85,8 @@ class FilePreviewEditTool(BaseTool):
     def execute(self, input: dict) -> ToolResult:
         path = input.get("file_path", "")
         new_content = input.get("new_content", "")
-        apply = bool(input.get("apply", False)) or not bool(input.get("preview", True))
+        # Only an explicit apply=true writes; preview=false must never imply a write.
+        apply = bool(input.get("apply", False))
         if not os.path.isfile(path):
             return ToolResult(content=f"File not found: {path}", is_error=True)
         try:

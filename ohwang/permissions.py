@@ -86,13 +86,14 @@ class PermissionManager:
         if self.mode is Mode.AUTO:
             return True
 
-        if self._signature(tool.name, input) in self._always_allow:
-            return True
         decision = self.decide(tool, input)
-        if decision is PermissionDecision.ALLOW:
-            return True
+        # deny rules always win — even over a remembered "always" grant.
         if decision is PermissionDecision.DENY:
             return False
+        if self._signature(tool.name, input) in self._always_allow:
+            return True
+        if decision is PermissionDecision.ALLOW:
+            return True
         if self._ask is None:
             return False
         answer = self._ask(tool.name, input)

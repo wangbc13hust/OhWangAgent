@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from typing import Callable, Optional
 
 from .config import Config
@@ -107,8 +108,10 @@ class Agent:
                     if on_text:
                         try:
                             on_text(event["text"])
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            sys.stderr.write(
+                                f"[renderer] on_text error: {type(exc).__name__}: {exc}\n"
+                            )
                 elif etype == "tool_use":
                     tool_uses.append(event)
 
@@ -122,8 +125,8 @@ class Agent:
             assistant_blocks.extend(
                 {
                     "type": "tool_use",
-                    "id": tu["id"],
-                    "name": tu["name"],
+                    "id": tu.get("id", ""),
+                    "name": tu.get("name", ""),
                     "input": tu.get("input", {}),
                 }
                 for tu in tool_uses
@@ -139,14 +142,18 @@ class Agent:
                 if on_tool_call:
                     try:
                         on_tool_call(tu)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        sys.stderr.write(
+                            f"[renderer] on_tool_call error: {type(exc).__name__}: {exc}\n"
+                        )
                 block = self._run_tool(tu)
                 if on_tool_result:
                     try:
-                        on_tool_result(tu["name"], block.get("is_error", False))
-                    except Exception:
-                        pass
+                        on_tool_result(tu.get("name", "?"), block.get("is_error", False))
+                    except Exception as exc:
+                        sys.stderr.write(
+                            f"[renderer] on_tool_result error: {type(exc).__name__}: {exc}\n"
+                        )
                 result_blocks.append(block)
             self._invalidate_system()
             self.messages.append({"role": "user", "content": result_blocks})
@@ -154,8 +161,8 @@ class Agent:
         return final_text
 
     def _run_tool(self, tool_use: dict) -> dict:
-        name = tool_use["name"]
-        tool_id = tool_use["id"]
+        name = tool_use.get("name", "unknown")
+        tool_id = tool_use.get("id", "unknown")
         input_ = tool_use.get("input", {}) or {}
 
         tool = self.tools.get(name)

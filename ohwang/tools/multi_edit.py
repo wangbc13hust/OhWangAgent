@@ -59,7 +59,8 @@ class MultiEditTool(BaseTool):
         edits = input.get("edits", [])
         if not edits:
             return ToolResult(content="No edits provided.", is_error=True)
-        apply = bool(input.get("apply", False)) or not bool(input.get("preview", True))
+        # Only an explicit apply=true writes; preview=false must never imply a write.
+        apply = bool(input.get("apply", False))
 
         lines: list[str] = []
         all_ok = True

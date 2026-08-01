@@ -86,3 +86,17 @@ def test_multi_edit_empty_edits():
     r = tool.execute({"edits": []})
     assert r.is_error
     assert "No edits" in r.content
+
+
+def test_multi_edit_preview_false_does_not_apply(tmp_path):
+    p = tmp_path / "e.txt"
+    p.write_text("beta", encoding="utf-8")
+    tool = MultiEditTool()
+    r = tool.execute(
+        {
+            "edits": [{"file_path": str(p), "old_string": "beta", "new_string": "omega"}],
+            "preview": False,
+        }
+    )
+    assert "PREVIEW" in r.content
+    assert p.read_text(encoding="utf-8") == "beta"

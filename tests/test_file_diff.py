@@ -59,3 +59,12 @@ def test_preview_edit_identical():
         assert "No differences" in r.content
     finally:
         os.unlink(path)
+
+
+def test_preview_edit_preview_false_does_not_apply(tmp_path):
+    p = tmp_path / "d.txt"
+    p.write_text("old", encoding="utf-8")
+    tool = FilePreviewEditTool()
+    r = tool.execute({"file_path": str(p), "new_content": "new", "preview": False})
+    assert "Preview" in r.content
+    assert p.read_text(encoding="utf-8") == "old"

@@ -71,3 +71,20 @@ def test_glob_patterns_match_tool_names():
 def test_rules_priority_after_patterns():
     perms = PermissionManager(mode=Mode.DEFAULT, deny=["*"], rules={"bash": "allow"})
     assert perms.can_run(_Tool("bash"), {"command": "x"}) is False
+
+
+def test_deny_rule_wins_over_remembered_always():
+    calls = []
+
+    def ask(name, inp):
+        calls.append(name)
+        return "always"
+
+    perms = PermissionManager(mode=Mode.DEFAULT, ask_callback=ask)
+    t = _Tool("bash")
+    # no deny rule yet -> "always" is remembered and allowed
+    assert perms.can_run(t, {"command": "rm -rf x"}) is True
+    assert len(calls) == 1
+    # adding a deny rule afterwards must block even the remembered grant
+    perms._deny.append("bash")
+    assert perms.can_run(t, {"command": "rm -rf x"}) is False

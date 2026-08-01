@@ -144,3 +144,58 @@ def test_build_agent_scheduler_runner_uses_shared_run_lock(monkeypatch, tmp_path
     assert scheduler._runner("hello") == "done"
     assert entered, "scheduler runner must acquire the run lock"
     assert entered[0] is lock, "scheduler runner must acquire the SAME lock the REPL uses"
+
+
+def test_sub_agent_has_own_permissions_and_inherits_policy(monkeypatch, tmp_path):
+    import argparse
+    from threading import Lock
+
+    import ohwang.cli as cli
+    from ohwang.modes import Mode
+    from ohwang.permissions import PermissionManager
+    from ohwang.providers.base import BaseProvider
+
+    monkeypatch.chdir(tmp_path)
+
+    class DummyProvider(BaseProvider):
+        name = "dummy"
+
+        def chat(self, system, messages, tools, max_tokens):
+            yield from ()
+
+    monkeypatch.setattr(cli, "create_provider", lambda *a, **k: DummyProvider("k", "m"))
+
+    captured = {}
+    real_dt = cli.default_tools
+
+    def spy_dt(**kw):
+        captured.update(kw)
+        return real_dt(**kw)
+
+    monkeypatch.setattr(cli, "default_tools", spy_dt)
+
+    args = argparse.Namespace(
+        provider="deepseek",
+        model="m",
+        api_key="k",
+        base_url=None,
+        max_tokens=100,
+        auto_approve=False,
+        plan=False,
+        compact_threshold=100_000,
+        workdir=None,
+        no_mcp=True,
+        no_proactive=True,
+    )
+    agent, *_ = cli.build_agent(args, Lock())
+
+    factory = captured["agent_factory"]
+    sub = factory()
+
+    assert isinstance(sub.permissions, PermissionManager)
+    assert sub.permissions is not agent.permissions  # its own manager, not the main one
+    assert sub.permissions.mode is Mode.AUTO
+    # sub-agent inherits the main policy/compactor/usage so it can't run away
+    assert sub.policy is agent.policy
+    assert sub.compactor is agent.compactor
+    assert sub.usage is agent.usage
