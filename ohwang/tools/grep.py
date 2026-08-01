@@ -73,7 +73,7 @@ class GrepTool(BaseTool):
 
         for fpath in files:
             try:
-                with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                with open(fpath, "r", encoding="utf-8", errors="replace") as f:
                     for lineno, line in enumerate(f, start=1):
                         if regex.search(line):
                             matches.append(

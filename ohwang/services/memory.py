@@ -33,6 +33,7 @@ class MemoryStore:
         self._ctx_cache: str | None = None
         self._ctx_sig: tuple | None = None
         self._context_cache: str | None = None
+        self._context_sig: tuple | None = None
         self._max_facts_in_context = 30
 
     def load_project_context(self) -> str:
@@ -116,7 +117,8 @@ class MemoryStore:
 
     def render_context(self) -> str:
         """Build a context string combining project markdown + relevant facts."""
-        if self._context_cache is not None:
+        sig = (self._project_sig(), self._facts_signature())
+        if self._context_cache is not None and sig == self._context_sig:
             return self._context_cache
         parts: list[str] = []
         project_ctx = self.load_project_context()
@@ -136,10 +138,12 @@ class MemoryStore:
                 parts.append(f"- **{f['key']}**{tags_str}: {f['value']}")
 
         self._context_cache = "\n".join(parts)
+        self._context_sig = sig
         return self._context_cache
 
     def _invalidate_context(self) -> None:
         self._context_cache = None
+        self._context_sig = None
 
     def _load_facts(self) -> dict:
         if not self._facts_path.is_file():
@@ -195,8 +199,12 @@ class MemoryExtractor:
         self._growth_threshold = growth_threshold
         self._last_count = 0
 
-    def extract(self, provider, messages: list[dict]) -> int:
-        """Ask the provider to summarize facts and persist them."""
+    def extract(self, provider, messages: list[dict]) -> "int | None":
+        """Ask the provider to summarize facts and persist them.
+
+        Returns None when the provider call itself failed, so callers can
+        distinguish "nothing worth saving" from "could not extract".
+        """
         try:
             text_parts: list[str] = []
             for event in provider.chat(
@@ -209,7 +217,7 @@ class MemoryExtractor:
                     text_parts.append(event["text"])
             payload = "".join(text_parts)
         except Exception:
-            return 0
+            return None
 
         facts = self._parse(payload)
         return self._store.import_facts(facts)
@@ -218,6 +226,8 @@ class MemoryExtractor:
         if len(messages) - self._last_count < self._growth_threshold:
             return 0
         added = self.extract(provider, messages)
+        if added is None:  # extraction failed (e.g. network) — don't advance
+            return 0
         self._last_count = len(messages)
         return added
 

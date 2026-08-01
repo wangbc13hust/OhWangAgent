@@ -5,9 +5,17 @@ _PER_MESSAGE_OVERHEAD = 4
 _PER_BLOCK_OVERHEAD = 8
 
 
+def _has_cjk(text: str) -> bool:
+    return any("一" <= ch <= "鿿" for ch in text)
+
+
 def estimate_text_tokens(text: str) -> int:
     if not text:
         return 0
+    # CJK text is far denser than ~4 chars/token; counting ~1 char/token keeps
+    # the compaction trigger from massively under-estimating Chinese prompts.
+    if _has_cjk(text):
+        return max(1, len(text))
     return max(1, len(text) // CHARS_PER_TOKEN)
 
 

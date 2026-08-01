@@ -55,6 +55,22 @@ def test_maybe_extract_respects_growth_threshold(tmp_path):
     assert ext.maybe_extract(provider, msgs) == 0  # runs, but no facts returned
 
 
+def test_maybe_extract_does_not_advance_on_provider_error(tmp_path):
+    store = MemoryStore(str(tmp_path))
+    ext = MemoryExtractor(store, growth_threshold=0)
+
+    class BoomProvider:
+        def chat(self, *a, **k):
+            raise RuntimeError("network down")
+            yield  # noqa
+
+    msgs = [{"role": "user", "content": [{"type": "text", "text": "x"}]}]
+    assert ext.maybe_extract(BoomProvider(), msgs) == 0
+    # failure must NOT advance the counter, or a transient network error would
+    # permanently skip extraction for the rest of the session.
+    assert ext._last_count == 0
+
+
 def test_agent_auto_extract_flow(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     responses = [

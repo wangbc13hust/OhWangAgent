@@ -70,6 +70,15 @@ def test_memory_render_context():
     assert "key1" in ctx
 
 
+def test_memory_render_context_reflects_project_file_changes(tmp_path):
+    store = MemoryStore(str(tmp_path))
+    assert store.render_context() == ""
+    (tmp_path / "CLAUDE.md").write_text("alpha", encoding="utf-8")
+    assert "alpha" in store.render_context()
+    (tmp_path / "CLAUDE.md").write_text("beta", encoding="utf-8")
+    assert "beta" in store.render_context()
+
+
 def test_memory_read_tool():
     d = tempfile.mkdtemp()
     store = MemoryStore(d)

@@ -14,6 +14,13 @@ def test_messages_estimate_positive_and_growing():
     assert estimate_messages_tokens(m2) > estimate_messages_tokens(m1)
 
 
+def test_cjk_text_estimated_denser():
+    # CJK counts ~1 char/token instead of ~4, so Chinese prompts are not
+    # grossly underestimated for the compaction trigger.
+    assert estimate_text_tokens("中" * 4) == 4
+    assert estimate_text_tokens("abcd" * 100) == 100
+
+
 def test_tool_use_and_result_counted():
     msgs = [
         {

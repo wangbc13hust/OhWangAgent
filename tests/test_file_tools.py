@@ -5,6 +5,15 @@ from ohwang.tools.glob import GlobTool
 from ohwang.tools.grep import GrepTool
 
 
+def test_grep_preserves_invalid_utf8_bytes(tmp_path):
+    # errors="replace" keeps the bad byte as U+FFFD; errors="ignore" would drop
+    # it silently and let 'abcdef' match across the gap.
+    p = tmp_path / "bin.txt"
+    p.write_bytes(b"abc\xffdef\n")
+    r = GrepTool().execute({"pattern": "abcdef", "path": str(p)})
+    assert "No matches" in r.content
+
+
 def test_file_write_creates_nested_dirs(tmp_path):
     p = tmp_path / "a" / "b" / "notes.txt"
     r = FileWriteTool().execute({"file_path": str(p), "content": "hello"})

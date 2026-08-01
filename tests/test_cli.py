@@ -27,6 +27,14 @@ def test_load_env_missing_file(tmp_path):
     assert os.environ.get("SHOULD_NOT_EXIST_XYZ") is None
 
 
+def test_load_env_strips_only_a_matching_outer_pair(tmp_path):
+    # old code did .strip("'").strip('"') which peeled EVERY surrounding quote,
+    # mangling values like "\"''nested''\"" down to "nested".
+    (tmp_path / ".env").write_text("VAL=\"''nested''\"\n", encoding="utf-8")
+    _load_env(str(tmp_path))
+    assert os.environ.get("VAL") == "''nested''"
+
+
 def _fake_agent(todos=None, facts=None, iterations=0):
     from ohwang.agent import Agent
     from ohwang.config import Config
