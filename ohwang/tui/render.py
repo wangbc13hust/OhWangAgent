@@ -21,10 +21,45 @@ def setup_utf8() -> None:
         pass
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         try:
-            if stream is not None:
+            if stream is not None and stream is not sys.stdin:
                 stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
+
+
+def read_stdin_line(prompt: str = "") -> str:
+    """Read one line of stdin, tolerant of pipe vs TTY and encoding mismatch.
+
+    Interactive terminals use regular input(). When stdin is a pipe (scripted /
+    CI usage), the bytes arrive in whatever encoding the upstream process chose
+    (often the system codepage, e.g. GBK on Chinese Windows), so we decode
+    bytes manually with a UTF-8-then-locale fallback instead of relying on the
+    stream's configured encoding.
+    """
+    if prompt:
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+    buf = getattr(sys.stdin, "buffer", None)
+    if buf is None:
+        line = sys.stdin.readline()
+        if line == "":
+            raise EOFError
+        return line.rstrip("\n")
+    try:
+        import locale
+
+        raw = buf.readline()
+    except Exception:
+        raw = b""
+    if raw == b"":
+        raise EOFError
+    text = raw.decode("utf-8", errors="replace")
+    if "\ufffd" in text:
+        try:
+            text = raw.decode(locale.getpreferredencoding(False))
+        except (UnicodeDecodeError, LookupError):
+            pass
+    return text.rstrip("\r\n")
 
 
 class Renderer:

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from ohwang.tui.render import Renderer
+from ohwang.tui.render import Renderer, read_stdin_line
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -98,3 +98,40 @@ def test_renderer_ask_question_defaults_on_eof(monkeypatch):
     monkeypatch.setattr("rich.prompt.Prompt.ask", _raise_eof)
     renderer = _make_renderer()
     assert renderer.ask_question("pick one", [{"label": "a"}]) == "1"
+
+
+def test_read_stdin_line_utf8_bytes(monkeypatch):
+    class _Buf:
+        def readline(self):
+            return "中文内容\r\n".encode("utf-8")
+
+    class _Stdin:
+        buffer = _Buf()
+
+    monkeypatch.setattr("ohwang.tui.render.sys.stdin", _Stdin())
+    assert read_stdin_line() == "中文内容"
+
+
+def test_read_stdin_line_gbk_bytes(monkeypatch):
+    class _Buf:
+        def readline(self):
+            return "中文内容\r\n".encode("gbk")
+
+    class _Stdin:
+        buffer = _Buf()
+
+    monkeypatch.setattr("ohwang.tui.render.sys.stdin", _Stdin())
+    assert read_stdin_line() == "中文内容"
+
+
+def test_read_stdin_line_eof(monkeypatch):
+    class _Buf:
+        def readline(self):
+            return b""
+
+    class _Stdin:
+        buffer = _Buf()
+
+    monkeypatch.setattr("ohwang.tui.render.sys.stdin", _Stdin())
+    with pytest.raises(EOFError):
+        read_stdin_line()

@@ -26,7 +26,7 @@ from .services.scheduler import Scheduler
 from .services.settings import load_settings
 from .tools import default_tools
 from .tools.todo import TodoStore
-from .tui import Renderer, setup_utf8
+from .tui import Renderer, read_stdin_line, setup_utf8
 
 
 def _load_env(workdir: str) -> None:
@@ -350,7 +350,7 @@ def repl(
 
     while True:
         try:
-            line = input("\nohwang> ")
+            line = read_stdin_line("\nohwang> ")
         except (EOFError, KeyboardInterrupt):
             renderer.info("\nBye.")
             break
