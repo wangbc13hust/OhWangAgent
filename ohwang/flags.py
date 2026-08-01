@@ -9,7 +9,7 @@ from typing import Optional
 _DEFAULTS = {
     "web_fetch": True,
     "web_search": True,
-    "web_browser": False,
+    "web_browser": True,
     "ask_user": True,
     "agent_tool": True,
     "mcp": True,
@@ -23,10 +23,10 @@ _DEFAULTS = {
     "session": True,
     "coordinator": False,
     "agent_swarms": False,
-    "worktree": False,
+    "worktree": True,
     "workflow_scripts": False,
-    "tool_search": False,
-    "proactive": False,
+    "tool_search": True,
+    "proactive": True,
 }
 
 

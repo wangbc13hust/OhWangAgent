@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import os
+
 from .base import BaseTool, ToolResult
 from .registry import ToolRegistry
 
@@ -8,8 +12,11 @@ def default_tools(
     search_provider=None,
     ask_callback=None,
     agent_factory=None,
+    workdir=None,
+    scheduler=None,
+    flags=None,
 ) -> ToolRegistry:
-    """Build a registry with the core coding tools + P1 extensions.
+    """Build a registry with the core coding tools + extensions.
 
     Parameters:
       todo_store      — enables TodoWriteTool
@@ -17,6 +24,9 @@ def default_tools(
       search_provider — enables WebSearchTool (DuckDuckGo by default)
       ask_callback    — enables AskUserQuestionTool
       agent_factory   — enables AgentTool (sub-agent)
+      workdir         — base dir for git worktree management
+      scheduler       — enables cron_create/delete/list (proactive mode)
+      flags           — FeatureFlags for gating web_browser
     """
     from .bash import BashTool
     from .file_edit import FileEditTool
@@ -24,6 +34,8 @@ def default_tools(
     from .file_write import FileWriteTool
     from .glob import GlobTool
     from .grep import GrepTool
+    from .powershell import PowerShellTool
+    from .tool_search import ToolSearchTool
     from .web_fetch import WebFetchTool
     from .web_search import WebSearchTool
 
@@ -36,8 +48,11 @@ def default_tools(
         GrepTool(),
         GlobTool(),
         WebFetchTool(),
+        PowerShellTool(),
     ):
         registry.register(tool)
+
+    registry.register(ToolSearchTool(registry))
 
     if search_provider is not None:
         registry.register(WebSearchTool(search_provider))
@@ -63,6 +78,32 @@ def default_tools(
     if agent_factory is not None:
         from .agent_tool import AgentTool
         registry.register(AgentTool(agent_factory))
+
+    from ..services.worktree import WorktreeManager
+    from .worktree import EnterWorktreeTool, ExitWorktreeTool
+    wm = WorktreeManager(workdir or os.getcwd())
+    registry.register(EnterWorktreeTool(wm))
+    registry.register(ExitWorktreeTool(wm))
+
+    if scheduler is not None:
+        from .schedule import CronCreateTool, CronDeleteTool, CronListTool
+        registry.register(CronCreateTool(scheduler))
+        registry.register(CronDeleteTool(scheduler))
+        registry.register(CronListTool(scheduler))
+
+    if flags is not None and flags.is_enabled("web_browser"):
+        try:
+            from ..services.browser import BrowserSession
+            from .web_browser import WebBrowserTool
+        except ImportError:
+            pass
+        else:
+            try:
+                import playwright  # noqa: F401
+            except ImportError:
+                pass
+            else:
+                registry.register(WebBrowserTool(BrowserSession(workdir=workdir)))
 
     return registry
 

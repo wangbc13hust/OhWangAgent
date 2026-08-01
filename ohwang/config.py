@@ -20,6 +20,21 @@ PROVIDER_PRESETS = {
         "default_model": "gpt-4o",
         "base_url": None,
     },
+    "deepseek": {
+        "env": "DEEPSEEK_API_KEY",
+        "default_model": "deepseek-v4-flash",
+        "base_url": "https://api.deepseek.com",
+    },
+    "kimi": {
+        "env": "MOONSHOT_API_KEY",
+        "default_model": "moonshot-v1-8k",
+        "base_url": "https://api.moonshot.cn/v1",
+    },
+    "qwen": {
+        "env": "DASHSCOPE_API_KEY",
+        "default_model": "qwen-max",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    },
 }
 
 

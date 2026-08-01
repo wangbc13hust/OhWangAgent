@@ -14,7 +14,13 @@ def create_provider(config: Config, base_url: Optional[str] = None) -> BaseProvi
 
         return AnthropicProvider(config.api_key, config.model)
 
-    if config.provider in ("openai", "zhipu"):
+    if config.provider in (
+        "openai",
+        "zhipu",
+        "deepseek",
+        "kimi",
+        "qwen",
+    ):
         from .openai_provider import OpenAIProvider
 
         return OpenAIProvider(config.api_key, config.model, base_url=effective_base)

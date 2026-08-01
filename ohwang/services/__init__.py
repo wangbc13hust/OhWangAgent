@@ -4,6 +4,9 @@ from .session import SessionStore
 from .settings import load_settings
 from .search import DuckDuckGoSearch, SearchProvider, TavilySearch, make_search_provider
 from .mcp import MCPClient, MCPToolWrapper, load_mcp_tools
+from .worktree import WorktreeManager
+from .scheduler import CronJob, Scheduler, cron_matches
+from .browser import BrowserSession
 
 __all__ = [
     "estimate_messages_tokens",
@@ -18,4 +21,9 @@ __all__ = [
     "MCPClient",
     "MCPToolWrapper",
     "load_mcp_tools",
+    "WorktreeManager",
+    "CronJob",
+    "Scheduler",
+    "cron_matches",
+    "BrowserSession",
 ]

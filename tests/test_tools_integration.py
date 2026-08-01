@@ -1,19 +1,8 @@
-from ohwang.tools.lsp_diagnose import LSPDiagnoseTool
-from ohwang.tools.memory import MemoryReadTool, MemoryWriteTool
-from ohwang.tools.web_fetch import WebFetchTool
-from ohwang.tools.web_search import WebSearchTool
-from ohwang.tools.ask_user import AskUserQuestionTool
-from ohwang.tools.agent_tool import AgentTool
-from ohwang.tools.bash import BashTool
-from ohwang.tools.file_read import FileReadTool
-from ohwang.tools.file_write import FileWriteTool
-from ohwang.tools.file_edit import FileEditTool
-from ohwang.tools.glob import GlobTool
-from ohwang.tools.grep import GrepTool
-from ohwang.tools.todo import TodoWriteTool
-from ohwang.tools.plan_mode import EnterPlanModeTool, ExitPlanModeTool
-from ohwang.tools.registry import ToolRegistry
+from ohwang.services.scheduler import Scheduler
+from ohwang.tools.schedule import CronCreateTool, CronDeleteTool, CronListTool
 from ohwang.tools import default_tools
+from ohwang.tools.registry import ToolRegistry
+from ohwang.tools.bash import BashTool
 from ohwang.permissions import PermissionManager
 from ohwang.modes import Mode
 from ohwang.tools.todo import TodoStore
@@ -70,6 +59,43 @@ def test_default_tools_with_agent_factory():
     )
     names = registry.names()
     assert "agent" in names
+
+
+def test_default_tools_includes_new_extensions():
+    registry = default_tools(search_provider=MockSearchProvider())
+    names = registry.names()
+    assert "powershell" in names
+    assert "tool_search" in names
+    assert "enter_worktree" in names
+    assert "exit_worktree" in names
+    assert "browser_action" not in names  # playwright not installed
+
+
+def test_default_tools_with_scheduler_registers_cron():
+    registry = default_tools(
+        search_provider=MockSearchProvider(),
+        scheduler=Scheduler(),
+    )
+    names = registry.names()
+    assert "cron_create" in names
+    assert "cron_delete" in names
+    assert "cron_list" in names
+
+
+def test_cron_tools_roundtrip():
+    scheduler = Scheduler()
+    create = CronCreateTool(scheduler)
+    delete = CronDeleteTool(scheduler)
+    listing = CronListTool(scheduler)
+
+    r = create.execute({"id": "t", "expression": "*/30 * * * *", "prompt": "run tests"})
+    assert not r.is_error
+    r2 = listing.execute({})
+    assert "t" in r2.content
+    r3 = delete.execute({"id": "t"})
+    assert not r3.is_error
+    r4 = delete.execute({"id": "t"})
+    assert r4.is_error
 
 
 def test_all_tools_have_valid_specs():
