@@ -42,11 +42,24 @@ class AnthropicProvider(BaseProvider):
             with stream_ctx as stream:
                 current_tool: dict | None = None
                 current_input_json = ""
+                input_tokens = 0
 
                 for event in stream:
                     etype = getattr(event, "type", None)
 
-                    if etype == "content_block_start":
+                    if etype == "message_start":
+                        usage = getattr(getattr(event, "message", None), "usage", None)
+                        if usage is not None:
+                            input_tokens = getattr(usage, "input_tokens", 0) or 0
+
+                    elif etype == "message_delta":
+                        usage = getattr(event, "usage", None)
+                        if usage is not None:
+                            self._record_usage(
+                                input_tokens, getattr(usage, "output_tokens", 0) or 0
+                            )
+
+                    elif etype == "content_block_start":
                         block = event.content_block
                         if getattr(block, "type", None) == "tool_use":
                             current_tool = {

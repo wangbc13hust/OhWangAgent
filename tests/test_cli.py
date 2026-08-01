@@ -82,3 +82,65 @@ def test_suggest_prompts_with_todos(tmp_path):
     agent = _fake_agent(todos=[{"content": "写周报", "status": "pending", "priority": "high"}])
     suggestions = _suggest_prompts(str(tmp_path), agent)
     assert any("待办" in s for s in suggestions)
+
+
+def test_build_agent_scheduler_runner_uses_shared_run_lock(monkeypatch, tmp_path):
+    """The cron scheduler runner and the REPL must share ONE lock so they can
+    never run the same Agent concurrently."""
+    import argparse
+    import ohwang.cli as cli
+    from ohwang.providers.base import BaseProvider
+
+    monkeypatch.chdir(tmp_path)
+
+    class DummyProvider(BaseProvider):
+        name = "dummy"
+
+        def chat(self, system, messages, tools, max_tokens):
+            yield from ()
+
+    monkeypatch.setattr(cli, "create_provider", lambda *a, **k: DummyProvider("k", "m"))
+    monkeypatch.setattr(
+        cli.Agent, "run", lambda self, user_input, **kw: "done"
+    )
+
+    args = argparse.Namespace(
+        provider="deepseek",
+        model="m",
+        api_key="k",
+        base_url=None,
+        max_tokens=100,
+        auto_approve=False,
+        plan=False,
+        compact_threshold=100_000,
+        workdir=None,
+        no_mcp=True,
+        no_proactive=True,
+    )
+
+    entered: list = []
+
+    class TrackLock:
+        def __enter__(self):
+            entered.append(self)
+            return self
+
+        def __exit__(self, *a):
+            return None
+
+    lock = TrackLock()
+    (
+        _agent,
+        _renderer,
+        _config,
+        _sessions,
+        scheduler,
+        _memext,
+        _skill,
+        _flags,
+    ) = cli.build_agent(args, lock)
+
+    assert scheduler._runner is not None
+    assert scheduler._runner("hello") == "done"
+    assert entered, "scheduler runner must acquire the run lock"
+    assert entered[0] is lock, "scheduler runner must acquire the SAME lock the REPL uses"

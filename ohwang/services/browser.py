@@ -74,7 +74,8 @@ class BrowserSession:
     def scroll(self, direction: str = "down") -> str:
         with self._lock:
             self._ensure()
-            delta = 800 if direction == "up" else -800
+            # window.scrollBy(0, +y) scrolls the viewport DOWN; "up" needs -y.
+            delta = -800 if direction == "up" else 800
             self._page.evaluate(
                 f"window.scrollBy(0, {delta});"
             )

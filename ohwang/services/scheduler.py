@@ -69,6 +69,11 @@ def cron_matches(expression: str, minute: int, hour: int, dom: int, month: int, 
     return minute in m and hour in h and dom in d and month in mo and dow in dw
 
 
+def py_dow_to_cron(tm_wday: int) -> int:
+    """Convert Python time.localtime().tm_wday (0=Mon..6=Sun) to cron dow (0=Sun..6=Sat)."""
+    return (tm_wday + 1) % 7
+
+
 class Scheduler:
     """Background thread that fires cron jobs, running each prompt via `runner`.
 
@@ -142,7 +147,7 @@ class Scheduler:
                     if job.last_run > now - 30:
                         continue
                     if cron_matches(job.expression, lt.tm_min, lt.tm_hour,
-                                    lt.tm_mday, lt.tm_mon, lt.tm_wday):
+                                    lt.tm_mday, lt.tm_mon, py_dow_to_cron(lt.tm_wday)):
                         due.append(job)
             for job in due:
                 with self._lock:

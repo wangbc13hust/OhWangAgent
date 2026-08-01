@@ -459,3 +459,48 @@ def test_openai_provider_records_usage_from_chunks():
     assert rep["prompt_tokens"] == 10
     assert rep["completion_tokens"] == 5
     monkeypatch.undo()
+
+
+def test_anthropic_provider_records_usage(monkeypatch):
+    import ohwang.providers.anthropic_provider as mod
+
+    class _InUsage:
+        input_tokens = 11
+
+    class _OutUsage:
+        output_tokens = 7
+
+    class _Message:
+        usage = _InUsage()
+
+    class _MS:
+        type = "message_start"
+        message = _Message()
+
+    class _MD:
+        type = "message_delta"
+        usage = _OutUsage()
+
+    events = [_MS(), _MD()]
+
+    class _Stream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return None
+
+        def __iter__(self):
+            return iter(events)
+
+    class _FakeAnthropic:
+        def __init__(self, **kw):
+            self.messages = type("M", (), {"stream": lambda self, **k: _Stream()})()
+
+    monkeypatch.setattr(mod.anthropic, "Anthropic", _FakeAnthropic)
+    p = AnthropicProvider("k", "m")
+    list(p.chat("sys", [], [], 100))
+    rep = p.usage_report()
+    assert rep["calls"] == 1
+    assert rep["prompt_tokens"] == 11
+    assert rep["completion_tokens"] == 7

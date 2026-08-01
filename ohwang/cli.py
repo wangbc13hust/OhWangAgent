@@ -104,7 +104,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def build_agent(args: argparse.Namespace):
+def build_agent(args: argparse.Namespace, run_lock: Lock):
     config = Config(
         provider=args.provider,
         model=args.model or "",
@@ -158,7 +158,6 @@ def build_agent(args: argparse.Namespace):
         skills=skill_loader.describe_all() if skill_loader is not None else None,
     )
 
-    run_lock = Lock()
     scheduler = Scheduler(
         runner=None, state_file=os.path.join(config.workdir, ".ohwang", "cron.json")
     )
@@ -225,12 +224,6 @@ def build_agent(args: argparse.Namespace):
         if added:
             renderer.info(f"Loaded LSP server: {', '.join(added)}")
 
-    if flags.is_enabled("proactive") and not args.no_proactive:
-        scheduler.start()
-        renderer.info("Proactive scheduler running (cron_create/delete/list).")
-    else:
-        renderer.info("Proactive scheduler disabled.")
-
     if flags.is_enabled("web_browser"):
         if "browser_action" in tools:
             renderer.info("Web browser tool enabled (Playwright).")
@@ -261,6 +254,13 @@ def build_agent(args: argparse.Namespace):
         usage=usage,
         memory_store=memory_store,
     )
+
+    if flags.is_enabled("proactive") and not args.no_proactive:
+        scheduler.start()
+        renderer.info("Proactive scheduler running (cron_create/delete/list).")
+    else:
+        renderer.info("Proactive scheduler disabled.")
+
     return agent, renderer, config, session_store, scheduler, memory_extractor, skill_loader, flags
 
 
@@ -496,6 +496,7 @@ def main(argv=None) -> int:
     if args.workdir:
         os.chdir(args.workdir)
     _load_env(os.getcwd())
+    run_lock = Lock()
     (
         agent,
         renderer,
@@ -505,8 +506,7 @@ def main(argv=None) -> int:
         memory_extractor,
         skill_loader,
         flags,
-    ) = build_agent(args)
-    run_lock = Lock()
+    ) = build_agent(args, run_lock)
     try:
         repl(
             agent,

@@ -1,6 +1,6 @@
 import time
 
-from ohwang.services.scheduler import Scheduler, cron_matches
+from ohwang.services.scheduler import Scheduler, cron_matches, py_dow_to_cron
 
 
 def test_cron_star_matches_all():
@@ -57,7 +57,8 @@ def test_scheduler_fires_due_job():
     fired: list[str] = []
     s = Scheduler(runner=lambda p: fired.append(p))
     lt = time.localtime()
-    expr = f"{lt.tm_min} {lt.tm_hour} {lt.tm_mday} {lt.tm_mon} {lt.tm_wday}"
+    # cron dow is 0=Sun..6=Sat; convert Python tm_wday (0=Mon..6=Sun).
+    expr = f"{lt.tm_min} {lt.tm_hour} {lt.tm_mday} {lt.tm_mon} {py_dow_to_cron(lt.tm_wday)}"
     assert s.add("now", expr, "hello")
     s.start()
     deadline = time.time() + 6
@@ -73,7 +74,7 @@ def test_scheduler_runner_error_is_swallowed():
 
     s = Scheduler(runner=boom)
     lt = time.localtime()
-    expr = f"{lt.tm_min} {lt.tm_hour} {lt.tm_mday} {lt.tm_mon} {lt.tm_wday}"
+    expr = f"{lt.tm_min} {lt.tm_hour} {lt.tm_mday} {lt.tm_mon} {py_dow_to_cron(lt.tm_wday)}"
     s.add("j", expr, "x")
     s.start()
     time.sleep(2)
@@ -143,3 +144,17 @@ def test_scheduler_loads_bom_state(tmp_path):
     s = Scheduler(state_file=state)
     assert s.count() == 1
     assert s.list()[0].id == "j"
+
+
+def test_py_dow_to_cron_maps_python_weekday_to_cron():
+    assert py_dow_to_cron(0) == 1  # Mon -> cron 1
+    assert py_dow_to_cron(1) == 2  # Tue -> cron 2
+    assert py_dow_to_cron(5) == 6  # Sat -> cron 6
+    assert py_dow_to_cron(6) == 0  # Sun -> cron 0
+
+
+def test_cron_dow_matches_cron_semantics_after_conversion():
+    # '* * * * 1' in cron means Monday. Python tm_wday=0 (Monday) maps to cron
+    # dow 1 and matches; tm_wday=1 (Tuesday) maps to 2 and does not.
+    assert cron_matches("* * * * 1", 0, 0, 1, 1, py_dow_to_cron(0)) is True
+    assert cron_matches("* * * * 1", 0, 0, 1, 1, py_dow_to_cron(1)) is False

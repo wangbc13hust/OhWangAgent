@@ -166,8 +166,9 @@ def test_browser_scroll_directions(monkeypatch, tmp_path):
     page = browser.context.page
     session.scroll("up")
     session.scroll("down")
-    assert "scrollBy(0, 800" in page.evaluate_calls[0]
-    assert "scrollBy(0, -800" in page.evaluate_calls[1]
+    # scrollBy(0, +y) scrolls the viewport DOWN, so "up" must use a negative delta.
+    assert "scrollBy(0, -800" in page.evaluate_calls[0]
+    assert "scrollBy(0, 800" in page.evaluate_calls[1]
 
 
 def test_browser_evaluate_returns_string(monkeypatch, tmp_path):
