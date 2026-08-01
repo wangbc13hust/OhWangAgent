@@ -25,12 +25,13 @@ class SessionStore:
                     "id": f.stem,
                     "mtime": data.get("mtime", 0),
                     "preview": data.get("preview", ""),
+                    "summary": data.get("summary", ""),
                     "n_messages": len(data.get("messages", [])),
                 }
             )
         return items
 
-    def save(self, messages: list[dict], preview: str = "") -> str:
+    def save(self, messages: list[dict], preview: str = "", summary: str = "") -> str:
         base = time.strftime("%Y%m%d-%H%M%S")
         sid = base
         n = 0
@@ -38,13 +39,23 @@ class SessionStore:
             n += 1
             sid = f"{base}-{n}"
         path = self.dir / f"{sid}.json"
-        data = {"mtime": time.time(), "preview": preview, "messages": messages}
+        data = {
+            "mtime": time.time(),
+            "preview": preview,
+            "summary": summary,
+            "messages": messages,
+        }
         path.write_text(
             json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         return sid
 
     def load(self, sid: str) -> list[dict] | None:
+        data = self.load_full(sid)
+        return data.get("messages") if data is not None else None
+
+    def load_full(self, sid: str) -> dict | None:
+        """Return the whole saved session dict (messages, summary, preview)."""
         path = self.dir / f"{sid}.json"
         if not path.exists():
             return None
@@ -52,4 +63,4 @@ class SessionStore:
             data = json.loads(path.read_text(encoding="utf-8-sig"))
         except Exception:
             return None
-        return data.get("messages", [])
+        return data

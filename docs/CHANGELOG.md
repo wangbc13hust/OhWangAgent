@@ -1,11 +1,42 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497（全绿）。
 
 ---
 
 ## 2026-08-02
+
+### 分层记忆系统（全局/项目/会话 + 相关性注入）
+
+对照 Claude Code 补齐记忆体系的三个缺口：无全局/用户层、无会话级蒸馏摘要、
+注入不看相关性。
+
+- **两层物理存储**：`MemoryStore(workdir, home_dir=None)` 新增可选全局层
+  `{home_dir}/.ohwang/memory/facts.json`（`~` 或 `OHWANG_HOME`），懒创建——单参
+  构造与旧行为逐字节一致，16+ 现有测试零改动。
+- **4 类型分级**：每条事实带 `type`（user/feedback/project/reference），提取
+  prompt 重写强制分类；旧 rows 无 type 读取时默认 `project`，不重写数据文件。
+- **自动路由**：`MemoryExtractor` 将 `type=user` 事实写全局层，其余写项目层；
+  全局层禁用时 user 事实回落到项目层，永不丢失。
+- **提取游标持久化**：`extract_cursor.json` 记录上次提取的消息数，跨会话不重复
+  提取已见历史；provider 失败不推进游标。
+- **会话记忆**：`SessionStore.save(messages, preview, summary)` + `load_full(sid)`；
+  新 `SessionSummarizer`（`services/summarizer.py`，复用 `Compactor._serialize`）
+  在 `/save` 时蒸馏会话简报，`/resume` 注入为 `# Session Context` 块。摘要生成
+  失败绝不断开 `/save`，仅提示后照常保存。
+- **相关性注入**：`agent._effective_system()` 以最近一条用户消息为 query 调
+  `render_context(query=…)`，确定性关键词打分（key>tags>value，中文走整串子串
+  命中）取 top-10，修复"注入最新 30 条"的根因；顺带消除 agent 层与 render 层
+  的双重 `# Project Memory` 头。
+- **工具扩展**：`memory_read` 支持 `scope`（project/user/all），`memory_write`
+  支持 `scope`/`type`，对无 scope 实现的 store 用守卫走旧签名（`_FakeStore` 兼容）。
+
+### 测试
+
+497 个测试全绿（本轮 +23：分层读写/迁移/合并渲染、排名命中与上限、中文子串
+命中、user 写入失效缓存、提取路由/回落/游标、摘要存取与降级、会话摘要注入、
+工具 scope、`/save` 摘要存储、`/resume` 摘要注入）。
 
 ### 真实办公场景实测修复批次（DeepSeek 实测 → 修复 → 复验）
 

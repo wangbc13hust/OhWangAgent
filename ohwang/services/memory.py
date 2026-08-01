@@ -2,20 +2,38 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
 _MEMORY_EXTRACTION_PROMPT = """You are a memory extraction service. Analyze the conversation and
 extract up to 10 durable facts worth remembering across sessions. Focus on:
 project decisions, conventions, user preferences, key parameters, and gotchas.
+
+Classify EVERY fact into exactly ONE of these types:
+- "user"      - a durable preference or identity fact about the human user
+                (e.g. "prefers Chinese replies", "uses Vim bindings", "works
+                on the Payments team"). These go to global memory.
+- "feedback"  - explicit praise or criticism of the assistant's output that
+                should adjust future behavior (e.g. "user disliked verbose
+                tool output").
+- "project"   - a decision, convention, or parameter specific to THIS project
+                (e.g. "auth uses JWT", "tests run with pytest -q").
+- "reference" - an external pointer or location useful across sessions
+                (e.g. "API docs live at ...", "bug tracker URL").
+
 Do NOT include one-off, trivial, or already-known facts.
 Explicitly EXCLUDE ephemeral content from a single session: meeting recaps,
 raw data/figures from one extraction, one-off task details, or anything that
 will not matter in future sessions. When in doubt, do not save it.
+
 Return ONLY a JSON array, no markdown, no commentary:
-[{"key": "short_snake_key", "value": "one sentence fact", "tags": ["decision"]}]
-If nothing is worth saving, return [].
+[{"key": "short_snake_key", "value": "one sentence fact", "tags": ["decision"], "type": "project"}]
+Every object MUST include a "type" field from the list above. If nothing is
+worth saving, return [].
 """
+
+_VALID_TYPES = ("user", "feedback", "project", "reference")
 
 
 class MemoryStore:
@@ -24,20 +42,38 @@ class MemoryStore:
     Two layers:
       1. CLAUDE.md / AGENTS.md in the project root — loaded as context.
       2. .ohwang/memory/facts.json — structured facts with relevance search.
+
+    A user (global) layer at `{home_dir}/.ohwang/memory/facts.json` can be
+    enabled by passing `home_dir`. Facts carry a `type` field (user / feedback /
+    project / reference); legacy rows without a type default to "project".
     """
 
-    def __init__(self, workdir: str | Path) -> None:
+    def __init__(self, workdir: str | Path, home_dir: Optional[str | Path] = None) -> None:
         self.workdir = Path(workdir)
         self.memory_dir = self.workdir / ".ohwang" / "memory"
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         self._facts_path = self.memory_dir / "facts.json"
+        # User layer is lazily created on first write — never touch ~/.ohwang
+        # merely for constructing a store (tests / build_agent stay clean).
+        self._user_facts_path = (
+            Path(home_dir) / ".ohwang" / "memory" / "facts.json"
+            if home_dir
+            else None
+        )
         self._facts_cache: dict | None = None
         self._facts_mtime: float | None = None
+        self._user_facts_cache: dict | None = None
+        self._user_facts_mtime: float | None = None
         self._ctx_cache: str | None = None
         self._ctx_sig: tuple | None = None
         self._context_cache: str | None = None
         self._context_sig: tuple | None = None
         self._max_facts_in_context = 30
+        self._max_ranked_facts = 10
+
+    @property
+    def user_layer_enabled(self) -> bool:
+        return self._user_facts_path is not None
 
     def load_project_context(self) -> str:
         """Load CLAUDE.md / AGENTS.md from project root as context string."""
@@ -70,57 +106,114 @@ class MemoryStore:
                 sig.append((name, None, None))
         return tuple(sig)
 
-    def _facts_signature(self) -> object:
+    def _facts_signature(self, scope: str = "project") -> object:
+        path = self._user_facts_path if scope == "user" else self._facts_path
+        if path is None:
+            return None
         try:
-            return self._facts_path.stat().st_mtime
+            return path.stat().st_mtime
         except OSError:
             return None
 
-    def add_fact(self, key: str, value: str, tags: Optional[list[str]] = None) -> None:
-        """Add or update a fact in the memory store."""
-        facts = self._load_facts()
+    def add_fact(
+        self,
+        key: str,
+        value: str,
+        tags: Optional[list[str]] = None,
+        scope: str = "project",
+        type_: Optional[str] = None,
+    ) -> None:
+        """Add or update a fact in the memory store.
+
+        `scope="user"` writes to the global layer; if that layer is disabled it
+        falls back to the project layer so the fact is never dropped.
+        """
+        if scope == "user" and self._user_facts_path is None:
+            scope = "project"
+        ftype = type_ or ("user" if scope == "user" else "project")
+        facts = self._load_facts(scope)
         facts[key] = {
             "value": value,
             "tags": list(tags or []),
+            "type": ftype,
         }
-        self._save_facts(facts)
+        self._save_facts(facts, scope)
 
-    def get_fact(self, key: str) -> Optional[str]:
-        facts = self._load_facts()
+    def get_fact(self, key: str, scope: str = "project") -> Optional[str]:
+        facts = self._load_facts(scope)
         entry = facts.get(key)
         return entry["value"] if entry else None
 
-    def search_facts(self, query: str) -> list[dict]:
-        """Simple keyword search over fact keys, values, and tags."""
-        facts = self._load_facts()
+    def search_facts(self, query: str, scope: Optional[str] = None) -> list[dict]:
+        """Simple keyword search over fact keys, values, and tags.
+
+        `scope=None` merges both layers (project first, then user). Results
+        include the fact's `type`.
+        """
+        if scope == "all":
+            scope = None
         query_lower = query.lower()
         results: list[dict] = []
-        for key, entry in facts.items():
-            value = entry.get("value", "")
-            tags = entry.get("tags", [])
-            searchable = f"{key} {value} {' '.join(tags)}".lower()
-            if query_lower in searchable:
-                results.append({"key": key, "value": value, "tags": tags})
+        for scope_name in ("project", "user"):
+            if scope is not None and scope != scope_name:
+                continue
+            facts = self._load_facts(scope_name)
+            for key, entry in facts.items():
+                value = entry.get("value", "")
+                tags = entry.get("tags", [])
+                searchable = f"{key} {value} {' '.join(tags)}".lower()
+                if query_lower in searchable:
+                    results.append(
+                        {
+                            "key": key,
+                            "value": value,
+                            "tags": tags,
+                            "type": entry.get("type", "project"),
+                        }
+                    )
         return results
 
-    def list_facts(self) -> list[dict]:
-        facts = self._load_facts()
-        return [
-            {"key": k, "value": v.get("value", ""), "tags": v.get("tags", [])}
-            for k, v in facts.items()
-        ]
+    def list_facts(self, scope: Optional[str] = None) -> list[dict]:
+        if scope == "all":
+            scope = None
+        results: list[dict] = []
+        for scope_name in ("project", "user"):
+            if scope is not None and scope != scope_name:
+                continue
+            facts = self._load_facts(scope_name)
+            for k, v in facts.items():
+                results.append(
+                    {
+                        "key": k,
+                        "value": v.get("value", ""),
+                        "tags": v.get("tags", []),
+                        "type": v.get("type", "project"),
+                    }
+                )
+        return results
 
-    def delete_fact(self, key: str) -> bool:
-        facts = self._load_facts()
+    def delete_fact(self, key: str, scope: str = "project") -> bool:
+        facts = self._load_facts(scope)
         if key not in facts:
             return False
         del facts[key]
-        self._save_facts(facts)
+        self._save_facts(facts, scope)
         return True
 
-    def render_context(self) -> str:
-        """Build a context string combining project markdown + relevant facts."""
-        sig = (self._project_sig(), self._facts_signature())
+    def render_context(self, query: str = "") -> str:
+        """Build a context string combining project markdown + relevant facts.
+
+        An empty query renders the tail of each layer's facts (latest first,
+        capped at `_max_facts_in_context`). A non-empty query switches to
+        relevance-ranked rendering (`_render_ranked_context`).
+        """
+        if query:
+            return self._render_ranked_context(query)
+        sig = (
+            self._project_sig(),
+            self._facts_signature("project"),
+            self._facts_signature("user"),
+        )
         if self._context_cache is not None and sig == self._context_sig:
             return self._context_cache
         parts: list[str] = []
@@ -128,7 +221,18 @@ class MemoryStore:
         if project_ctx:
             parts.append(project_ctx)
 
-        facts = self.list_facts()
+        user_facts = self.list_facts(scope="user")
+        if user_facts:
+            parts.append("\n# User Memory\n")
+            shown = user_facts[-self._max_facts_in_context :]
+            if len(user_facts) > len(shown):
+                parts.append(
+                    f"(showing {len(shown)} of {len(user_facts)} user facts; use memory_read for the rest)\n"
+                )
+            for f in shown:
+                parts.append(self._format_fact(f))
+
+        facts = self.list_facts(scope="project")
         if facts:
             parts.append("\n# Project Memory\n")
             shown = facts[-self._max_facts_in_context :]
@@ -137,45 +241,133 @@ class MemoryStore:
                     f"(showing {len(shown)} of {len(facts)} facts; use memory_read for the rest)\n"
                 )
             for f in shown:
-                tags_str = f" [{', '.join(f['tags'])}]" if f["tags"] else ""
-                parts.append(f"- **{f['key']}**{tags_str}: {f['value']}")
+                parts.append(self._format_fact(f))
 
         self._context_cache = "\n".join(parts)
         self._context_sig = sig
         return self._context_cache
 
+    def _render_ranked_context(self, query: str) -> str:
+        """Relevance-ranked facts for a specific query (no caching, fresh)."""
+        parts: list[str] = []
+        project_ctx = self.load_project_context()
+        if project_ctx:
+            parts.append(project_ctx)
+        facts = self._rank_facts(query, self.list_facts(scope=None))
+        if facts:
+            parts.append("\n# Memory\n")
+            for f in facts:
+                parts.append(self._format_fact(f))
+        return "\n".join(parts)
+
+    @staticmethod
+    def _format_fact(f: dict) -> str:
+        tags_str = f" [{', '.join(f['tags'])}]" if f["tags"] else ""
+        return f"- **{f['key']}**{tags_str}: {f['value']}"
+
+    def _rank_facts(self, query: str, facts: list[dict]) -> list[dict]:
+        """Deterministic relevance scoring — no LLM, no side queries.
+
+        CJK queries rely on whole-string substring hits on key/tags/value;
+        ASCII/underscore tokens get per-field weights (key > tags > value).
+        Ties break by insertion order (= recency).
+        """
+        q = query.strip().lower()
+        if not q:
+            return []
+        tokens = {t for t in re.findall(r"[0-9a-zA-Z_]+", q) if t}
+        ranked: list[tuple] = []
+        for idx, fact in enumerate(facts):
+            key = str(fact.get("key", "")).lower()
+            value = str(fact.get("value", "")).lower()
+            tags = " ".join(str(t) for t in fact.get("tags", [])).lower()
+            score = 0.0
+            if q in key:
+                score += 6
+            if q in tags:
+                score += 4
+            if q in value:
+                score += 2
+            for tok in tokens:
+                if tok in key:
+                    score += 3
+                elif tok in tags:
+                    score += 2
+                elif tok in value:
+                    score += 1
+            if score > 0:
+                ranked.append((score, idx, fact))
+        ranked.sort(key=lambda t: (-t[0], -t[1]))
+        return [f for _, _, f in ranked][: self._max_ranked_facts]
+
     def _invalidate_context(self) -> None:
         self._context_cache = None
         self._context_sig = None
 
-    def _load_facts(self) -> dict:
-        if not self._facts_path.is_file():
+    def _load_facts(self, scope: str = "project") -> dict:
+        if scope == "user":
+            if self._user_facts_path is None:
+                return {}
+            path = self._user_facts_path
+            if not path.is_file():
+                self._user_facts_cache = {}
+                self._user_facts_mtime = None
+                return {}
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                return self._user_facts_cache or {}
+            if (
+                self._user_facts_cache is not None
+                and mtime == self._user_facts_mtime
+            ):
+                return self._user_facts_cache
+            try:
+                data = json.loads(path.read_text(encoding="utf-8-sig"))
+            except Exception:
+                data = {}
+            self._user_facts_cache = data
+            self._user_facts_mtime = mtime
+            return data
+
+        path = self._facts_path
+        if not path.is_file():
             self._facts_cache = {}
             self._facts_mtime = None
             return {}
         try:
-            mtime = self._facts_path.stat().st_mtime
+            mtime = path.stat().st_mtime
         except OSError:
             return self._facts_cache or {}
         if self._facts_cache is not None and mtime == self._facts_mtime:
             return self._facts_cache
         try:
-            data = json.loads(self._facts_path.read_text(encoding="utf-8-sig"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
         except Exception:
             data = {}
         self._facts_cache = data
         self._facts_mtime = mtime
         return data
 
-    def _save_facts(self, facts: dict) -> None:
-        self._facts_path.write_text(
-            json.dumps(facts, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        self._facts_cache = None
-        self._facts_mtime = None
+    def _save_facts(self, facts: dict, scope: str = "project") -> None:
+        if scope == "user":
+            if self._user_facts_path is None:
+                return  # disabled layer — nothing to do
+            self._user_facts_path.parent.mkdir(parents=True, exist_ok=True)
+            self._user_facts_path.write_text(
+                json.dumps(facts, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            self._user_facts_cache = None
+            self._user_facts_mtime = None
+        else:
+            self._facts_path.write_text(
+                json.dumps(facts, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            self._facts_cache = None
+            self._facts_mtime = None
         self._invalidate_context()
 
-    def import_facts(self, facts: list[dict]) -> int:
+    def import_facts(self, facts: list[dict], scope: str = "project") -> int:
         """Merge extracted facts into the store. Returns the number added."""
         added = 0
         for f in facts:
@@ -184,8 +376,11 @@ class MemoryStore:
             if not key or not value:
                 continue
             tags = [str(t) for t in f.get("tags", []) if str(t).strip()]
-            if self.get_fact(key) != value:
-                self.add_fact(key, value, tags)
+            ftype = f.get("type")
+            if ftype not in _VALID_TYPES:
+                ftype = None
+            if self.get_fact(key, scope=scope) != value:
+                self.add_fact(key, value, tags, scope=scope, type_=ftype)
                 added += 1
         return added
 
@@ -194,16 +389,39 @@ class MemoryExtractor:
     """Auto-extract durable facts from a conversation via the provider.
 
     `maybe_extract` only re-runs after the conversation grows by
-    `growth_threshold` messages since the last extraction.
+    `growth_threshold` messages since the last extraction. The last extraction
+    count persists to `extract_cursor.json` so each session starts where the
+    previous one left off (no re-extraction of already-seen history).
     """
 
     def __init__(self, store: MemoryStore, growth_threshold: int = 20) -> None:
         self._store = store
         self._growth_threshold = growth_threshold
-        self._last_count = 0
+        self._last_count = self._load_cursor()
+
+    def _cursor_path(self) -> Path:
+        return self._store.memory_dir / "extract_cursor.json"
+
+    def _load_cursor(self) -> int:
+        try:
+            data = json.loads(self._cursor_path().read_text(encoding="utf-8"))
+            return int(data.get("count", 0))
+        except Exception:
+            return 0
+
+    def _save_cursor(self) -> None:
+        try:
+            self._cursor_path().write_text(
+                json.dumps({"count": self._last_count}), encoding="utf-8"
+            )
+        except Exception:
+            pass
 
     def extract(self, provider, messages: list[dict]) -> "int | None":
         """Ask the provider to summarize facts and persist them.
+
+        Facts classified as type "user" route to the global layer; all others
+        (including legacy facts without a type) go to the project layer.
 
         Returns None when the provider call itself failed, so callers can
         distinguish "nothing worth saving" from "could not extract".
@@ -223,7 +441,13 @@ class MemoryExtractor:
             return None
 
         facts = self._parse(payload)
-        return self._store.import_facts(facts)
+        project_facts = [f for f in facts if f.get("type") != "user"]
+        user_facts = [f for f in facts if f.get("type") == "user"]
+        added = self._store.import_facts(project_facts, scope="project")
+        if user_facts:
+            user_scope = "user" if self._store.user_layer_enabled else "project"
+            added += self._store.import_facts(user_facts, scope=user_scope)
+        return added
 
     def maybe_extract(self, provider, messages: list[dict]) -> int:
         if len(messages) - self._last_count < self._growth_threshold:
@@ -232,6 +456,7 @@ class MemoryExtractor:
         if added is None:  # extraction failed (e.g. network) — don't advance
             return 0
         self._last_count = len(messages)
+        self._save_cursor()
         return added
 
     @staticmethod

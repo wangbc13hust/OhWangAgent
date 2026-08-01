@@ -94,6 +94,20 @@ def test_effective_system_injects_memory_context():
     assert "Project Memory" in system
 
 
+def test_effective_system_injects_session_summary():
+    workdir = tempfile.mkdtemp()
+    config = Config(workdir=workdir, auto_approve=True).resolve()
+    provider = MockProvider()
+    agent = Agent(
+        provider, default_tools(), PermissionManager(auto_approve=True),
+        config, build_system_prompt(workdir),
+        session_summary="- resumed task: write report",
+    )
+    system = agent._effective_system()
+    assert "Session Context" in system
+    assert "resumed task" in system
+
+
 def test_effective_system_without_memory():
     workdir = tempfile.mkdtemp()
     config = Config(workdir=workdir, auto_approve=True).resolve()

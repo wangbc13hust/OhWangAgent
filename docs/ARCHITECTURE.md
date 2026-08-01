@@ -108,13 +108,15 @@ ohwang/
 │   ├── compact.py         上下文压缩（token 阈值）
 │   ├── tokens.py          token 估算（CJK 按 ~1 字符/token）
 │   ├── session.py         会话保存/resume（.ohwang/sessions/）
+│   ├── summarizer.py      会话摘要蒸馏（/save 时生成，复用 Compactor 序列化）
 │   ├── settings.py        权限规则文件读写
 │   ├── search.py          Tavily → Bing(默认,国内可达) → DuckDuckGo 回退
 │   ├── mcp.py             MCP 客户端 + 工具封装
 │   ├── worktree.py        git worktree 管理
 │   ├── scheduler.py       cron 调度器（proactive 模式，state_file 持久化 .ohwang/cron.json）
 │   ├── browser.py         Playwright 浏览器会话
-│   ├── memory.py          MemoryStore + MemoryExtractor（自动记忆提取）
+│   ├── memory.py          MemoryStore（分层 project/全局 + 类型分级 + 相关性排名）
+│   │                       + MemoryExtractor（自动记忆提取，user 路由 + 游标持久化）
 │   ├── hooks.py           HookManager（pre/post/notif）
 │   ├── policy.py          PolicyLimits（调用上限）
 │   ├── summary.py         UsageTracker（工具调用统计）
@@ -206,13 +208,13 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 
 | 服务 | 职责 | 数据 |
 | :--- | :--- | :--- |
-| `MemoryStore` | 持久记忆 | `CLAUDE.md`/`AGENTS.md` + `.ohwang/memory/facts.json` |
-| `MemoryExtractor` | 会话增长 ≥20 条时让模型提炼事实自动入库；提取提示排除单会话临时内容（会议记录/一次性数据图表） | `.ohwang/memory/facts.json` |
+| `MemoryStore` | 分层持久记忆：项目层 `{workdir}` + 全局层 `~/.ohwang`（懒创建）；事实带 `type`（user/feedback/project/reference）；`render_context(query)` 空 query 注入每层最新 ≤30 条，带 query 按确定性相关性打分取 top-10（修复"注入最新 30 条"与双重头） | `CLAUDE.md`/`AGENTS.md` + `.ohwang/memory/facts.json`（+ `~/.ohwang/memory/facts.json`） |
+| `MemoryExtractor` | 会话增长 ≥20 条时让模型提炼事实自动入库；提取提示强制 4 类型分类并排除单会话临时内容（会议记录/一次性数据图表）；`type=user` 自动路由到全局层；游标 `extract_cursor.json` 跨会话持久化防重复提取 | `.ohwang/memory/facts.json` + `extract_cursor.json` |
 | `HookManager` | pre/post tool + notif 生命周期钩子 | `.ohwang/hooks.json` 命令钩子 |
 | `PolicyLimits` | 工具调用总量/单工具上限，防失控循环；总量默认 200，**被权限拒绝的调用也计入预算**（防拒绝后无限重试） | `.ohwang/policy.json` |
 | `UsageTracker` | 工具调用统计（`/summary`、brief 工具） | 内存 |
 | `Compactor` | 超阈值上下文压缩 | — |
-| `SessionStore` | 会话保存/resume | `.ohwang/sessions/*.json` |
+| `SessionStore` | 会话保存/resume（`save` 可带 `summary`；`/save` 经 `SessionSummarizer` 蒸馏简报，`/resume` 注入为 `# Session Context` 块） | `.ohwang/sessions/*.json` |
 | `Scheduler` | cron 调度，agent 空闲时可后台执行任务；**state_file 持久化，重启不丢** | `.ohwang/cron.json` |
 | `MCPClient` | 外部 MCP 服务器工具 | `.ohwang/mcp.json` |
 | `SearchProvider` | Tavily(有key) → Bing(默认,国内可达) → DDG 回退；不可达抛 `SearchError` | — |
@@ -315,7 +317,8 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 - 流式：`Renderer.stream_text` 即时输出 + 智能 flush（128字符/50ms/句子结束）；
   管道输入 `read_stdin_line` 字节级 UTF-8/GBK 容错。
 - token 优化：`Agent._effective_system()`/`ToolRegistry.specs()` 单 run 内缓存，
-  `MemoryStore` 按 mtime+size 缓存 project context 与 facts，记忆段注入上限 30 条。
+  `MemoryStore` 按 mtime+size 缓存 project context 与两层 facts；`render_context()`
+  空 query 注入每层 ≤30 条，带 query 时按相关性取 top-10 且跳过缓存。
 - 运行：`$env:PYTHONPATH="D:\ai-project\OhWangAgent"; .venv\Scripts\python.exe -m pytest -q`
 
 ---

@@ -71,6 +71,85 @@ def test_maybe_extract_does_not_advance_on_provider_error(tmp_path):
     assert ext._last_count == 0
 
 
+def test_extract_routes_user_type_to_user_layer(tmp_path):
+    store = MemoryStore(str(tmp_path), home_dir=str(tmp_path / "home"))
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text",
+                    "text": (
+                        '[{"key": "pref", "value": "prefers Chinese", "tags": ["pref"], "type": "user"},'
+                        '{"key": "arch", "value": "uses JWT", "tags": ["decision"], "type": "project"}]'
+                    ),
+                }
+            ]
+        ]
+    )
+    ext = MemoryExtractor(store, growth_threshold=0)
+    added = ext.extract(
+        provider, [{"role": "user", "content": [{"type": "text", "text": "..."}]}]
+    )
+    assert added == 2
+    assert store.get_fact("pref", scope="user") == "prefers Chinese"
+    assert store.get_fact("pref") is None
+    assert store.get_fact("arch") == "uses JWT"
+
+
+def test_extract_user_falls_back_when_no_home_dir(tmp_path):
+    store = MemoryStore(str(tmp_path))
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text",
+                    "text": '[{"key": "pref", "value": "prefers Chinese", "type": "user"}]',
+                }
+            ]
+        ]
+    )
+    ext = MemoryExtractor(store, growth_threshold=0)
+    assert ext.extract(
+        provider, [{"role": "user", "content": [{"type": "text", "text": "..."}]}]
+    ) == 1
+    assert store.get_fact("pref") == "prefers Chinese"  # landed in project layer
+
+
+def test_extract_cursor_persists_across_instances(tmp_path):
+    store = MemoryStore(str(tmp_path))
+    ext1 = MemoryExtractor(store, growth_threshold=10)
+    provider = ScriptedProvider([[{"type": "text", "text": "[]"}]])
+    msgs = [
+        {"role": "user", "content": [{"type": "text", "text": "x"}]} for _ in range(10)
+    ]
+    assert ext1.maybe_extract(provider, msgs) == 0
+    assert ext1._last_count == 10
+    ext2 = MemoryExtractor(store, growth_threshold=10)
+    assert ext2._last_count == 10  # loaded from extract_cursor.json
+    # below threshold again -> no re-extraction of already-seen history
+    assert ext2.maybe_extract(provider, msgs) == 0
+
+
+def test_extract_missing_type_defaults_project(tmp_path):
+    store = MemoryStore(str(tmp_path), home_dir=str(tmp_path / "home"))
+    provider = ScriptedProvider(
+        [
+            [
+                {
+                    "type": "text",
+                    "text": '[{"key": "old", "value": "legacy fact", "tags": []}]',
+                }
+            ]
+        ]
+    )
+    ext = MemoryExtractor(store, growth_threshold=0)
+    assert ext.extract(
+        provider, [{"role": "user", "content": [{"type": "text", "text": "..."}]}]
+    ) == 1
+    assert store.get_fact("old") == "legacy fact"  # project layer despite home_dir
+    assert store.list_facts(scope="user") == []
+
+
 def test_agent_auto_extract_flow(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     responses = [

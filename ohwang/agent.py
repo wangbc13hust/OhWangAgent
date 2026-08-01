@@ -28,6 +28,7 @@ class Agent:
         policy=None,
         usage=None,
         memory_store=None,
+        session_summary: Optional[str] = None,
     ) -> None:
         self.provider = provider
         self.tools = tools
@@ -42,11 +43,13 @@ class Agent:
         self.usage = usage
         self.messages: list[dict] = []
         self.iterations = 0
+        self.session_summary = session_summary or ""
         self._system_cache: str | None = None
 
     def reset(self) -> None:
         self.messages.clear()
         self.iterations = 0
+        self.session_summary = ""
         self._system_cache = None
         if self.todo_store is not None:
             self.todo_store.set([])
@@ -58,11 +61,36 @@ class Agent:
         if self.todo_store is not None:
             parts.append(self.todo_store.render())
         if self.memory_store is not None:
-            memory_ctx = self.memory_store.render_context()
+            # Relevance-rank facts against the latest user message so the most
+            # useful memories surface; render_context owns its own section
+            # headers (no double "# Project Memory" wrapper here).
+            memory_ctx = self.memory_store.render_context(
+                query=self._latest_user_text()
+            )
             if memory_ctx:
-                parts.append("\n\n# Project Memory\n" + memory_ctx)
+                parts.append(memory_ctx)
+        if self.session_summary:
+            parts.append("\n# Session Context\n" + self.session_summary)
         self._system_cache = "\n".join(p for p in parts if p)
         return self._system_cache
+
+    def _latest_user_text(self) -> str:
+        """Return the most recent user text block, or "" if none exists.
+
+        Tool results are also user-role messages but have no text blocks, so
+        the scan naturally stops at the latest real user utterance.
+        """
+        for msg in reversed(self.messages):
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                for block in content:
+                    if block.get("type") == "text":
+                        return block.get("text", "")
+        return ""
 
     def _invalidate_system(self) -> None:
         self._system_cache = None

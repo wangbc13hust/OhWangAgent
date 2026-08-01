@@ -73,7 +73,7 @@ def test_build_agent_workdir_is_absolute_and_unified(tmp_path, monkeypatch):
         no_mcp=True,
         no_proactive=True,
     )
-    (agent, _renderer, config, _session, _sched, _ext, _skills, _flags) = cli.build_agent(
+    (agent, _renderer, config, _session, _sched, _ext, _skills, _flags, _summarizer) = cli.build_agent(
         args, threading.Lock()
     )
     expected = str(tmp_path / "sub")

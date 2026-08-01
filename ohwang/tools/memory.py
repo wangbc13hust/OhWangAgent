@@ -16,6 +16,12 @@ class MemoryReadTool(BaseTool):
                 "type": "string",
                 "description": "Search query to filter facts (optional).",
             },
+            "scope": {
+                "type": "string",
+                "enum": ["project", "user", "all"],
+                "description": "Which memory layer to search: project (default), "
+                "user/global, or all (merged).",
+            },
         },
     }
     default_permission = "allow"
@@ -26,7 +32,13 @@ class MemoryReadTool(BaseTool):
     def execute(self, input: dict) -> ToolResult:
         query = input.get("query", "")
         if query:
-            results = self._store.search_facts(query)
+            scope = input.get("scope")
+            # Guard for stores without a scope-aware search_facts signature:
+            # only use the keyword form when the model explicitly chose a scope.
+            if scope:
+                results = self._store.search_facts(query, scope=scope)
+            else:
+                results = self._store.search_facts(query)
             if not results:
                 ctx = self._store.load_project_context()
                 if ctx:
@@ -53,6 +65,16 @@ class MemoryWriteTool(BaseTool):
                 "items": {"type": "string"},
                 "description": "Optional tags for categorization.",
             },
+            "type": {
+                "type": "string",
+                "enum": ["user", "feedback", "project", "reference"],
+                "description": "Fact classification. 'user' facts route to global memory.",
+            },
+            "scope": {
+                "type": "string",
+                "enum": ["project", "user"],
+                "description": "Which layer to write to: project (default) or user/global.",
+            },
         },
         "required": ["key", "value"],
     }
@@ -65,5 +87,12 @@ class MemoryWriteTool(BaseTool):
         key = input["key"]
         value = input["value"]
         tags = input.get("tags", [])
-        self._store.add_fact(key, value, tags)
+        scope = input.get("scope")
+        ftype = input.get("type")
+        # Guard for stores without scope/type support: only use the keyword
+        # form when the model explicitly supplied either field.
+        if scope or ftype:
+            self._store.add_fact(key, value, tags, scope=scope or "project", type_=ftype)
+        else:
+            self._store.add_fact(key, value, tags)
         return ToolResult(content=f"Saved fact: {key}")

@@ -146,12 +146,97 @@ def test_build_agent_scheduler_runner_uses_shared_run_lock(monkeypatch, tmp_path
         _memext,
         _skill,
         _flags,
+        _summarizer,
     ) = cli.build_agent(args, lock)
 
     assert scheduler._runner is not None
     assert scheduler._runner("hello") == "done"
     assert entered, "scheduler runner must acquire the run lock"
     assert entered[0] is lock, "scheduler runner must acquire the SAME lock the REPL uses"
+
+
+def test_cmd_save_stores_summary(tmp_path):
+    import ohwang.cli as cli
+    from ohwang.services.session import SessionStore
+
+    class FakeSummarizer:
+        def summarize(self, provider, messages):
+            return "- summary text"
+
+    agent = _fake_agent()
+    agent.messages = [{"role": "user", "content": [{"type": "text", "text": "hello"}]}]
+    session_store = SessionStore(str(tmp_path))
+
+    class R:
+        def __init__(self):
+            self.infos = []
+            self.warns = []
+
+        def info(self, m):
+            self.infos.append(m)
+
+        def warn(self, m):
+            self.warns.append(m)
+
+    cli._cmd_save(agent, R(), session_store, FakeSummarizer())
+    items = session_store.list()
+    assert len(items) == 1
+    assert items[0]["summary"] == "- summary text"
+
+
+def test_cmd_save_no_summarizer_still_saves(tmp_path):
+    import ohwang.cli as cli
+    from ohwang.services.session import SessionStore
+
+    agent = _fake_agent()
+    agent.messages = [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
+    session_store = SessionStore(str(tmp_path))
+
+    class R:
+        def __init__(self):
+            self.infos = []
+            self.warns = []
+
+        def info(self, m):
+            self.infos.append(m)
+
+        def warn(self, m):
+            self.warns.append(m)
+
+    cli._cmd_save(agent, R(), session_store, None)
+    items = session_store.list()
+    assert len(items) == 1
+    assert items[0]["summary"] == ""
+
+
+def test_cmd_resume_injects_summary(tmp_path):
+    import ohwang.cli as cli
+    from ohwang.services.session import SessionStore
+
+    session_store = SessionStore(str(tmp_path))
+    msgs = [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
+    sid = session_store.save(msgs, preview="hi", summary="- brief")
+    agent = _fake_agent()
+
+    class R:
+        class console:
+            @staticmethod
+            def input(prompt):
+                return "1"
+
+        def __init__(self):
+            self.infos = []
+            self.warns = []
+
+        def info(self, m):
+            self.infos.append(m)
+
+        def warn(self, m):
+            self.warns.append(m)
+
+    cli._cmd_resume(agent, R(), session_store)
+    assert agent.messages == msgs
+    assert agent.session_summary == "- brief"
 
 
 def test_sub_agent_has_own_permissions_and_inherits_policy(monkeypatch, tmp_path):

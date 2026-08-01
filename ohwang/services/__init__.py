@@ -8,6 +8,7 @@ from .worktree import WorktreeManager
 from .scheduler import CronJob, Scheduler, cron_matches
 from .browser import BrowserSession
 from .memory import MemoryExtractor, MemoryStore
+from .summarizer import SessionSummarizer
 from .hooks import HookManager
 from .lsp import LSPClient, load_lsp_tools
 from .summary import UsageTracker
@@ -35,6 +36,7 @@ __all__ = [
     "BrowserSession",
     "MemoryExtractor",
     "MemoryStore",
+    "SessionSummarizer",
     "HookManager",
     "LSPClient",
     "load_lsp_tools",

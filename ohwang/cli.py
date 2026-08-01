@@ -20,6 +20,7 @@ from .services import (
     MemoryStore,
     PolicyLimits,
     SessionStore,
+    SessionSummarizer,
     UsageTracker,
 )
 from .services.scheduler import Scheduler
@@ -181,9 +182,15 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
     todo_store = TodoStore()
     task_store = TaskStore(config.workdir)
     usage = UsageTracker()
-    memory_store = MemoryStore(config.workdir)
+    memory_store = MemoryStore(
+        config.workdir,
+        home_dir=os.environ.get("OHWANG_HOME") or os.path.expanduser("~"),
+    )
     memory_extractor = (
         MemoryExtractor(memory_store) if flags.is_enabled("memory") else None
+    )
+    session_summarizer = (
+        SessionSummarizer() if flags.is_enabled("session") else None
     )
     skill_loader = None
     if flags.is_enabled("skill"):
@@ -309,7 +316,17 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
     else:
         renderer.info("Proactive scheduler disabled.")
 
-    return agent, renderer, config, session_store, scheduler, memory_extractor, skill_loader, flags
+    return (
+        agent,
+        renderer,
+        config,
+        session_store,
+        scheduler,
+        memory_extractor,
+        skill_loader,
+        flags,
+        session_summarizer,
+    )
 
 
 def _run_once(
@@ -388,15 +405,17 @@ def _cmd_resume(agent, renderer, session_store):
     except (ValueError, IndexError):
         renderer.warn("Invalid choice.")
         return
-    msgs = session_store.load(sid)
-    if msgs is None:
+    data = session_store.load_full(sid)
+    if data is None:
         renderer.warn("Failed to load session.")
         return
-    agent.messages = msgs
-    renderer.info(f"Resumed session {sid} ({len(msgs)} messages).")
+    agent.messages = data.get("messages", [])
+    agent.session_summary = data.get("summary", "") or ""
+    agent._invalidate_system()
+    renderer.info(f"Resumed session {sid} ({len(agent.messages)} messages).")
 
 
-def _cmd_save(agent, renderer, session_store):
+def _cmd_save(agent, renderer, session_store, session_summarizer=None):
     if not agent.messages:
         renderer.info("Nothing to save (empty conversation).")
         return
@@ -410,7 +429,15 @@ def _cmd_save(agent, renderer, session_store):
                         preview = b["text"][:80]
                         break
             break
-    sid = session_store.save(agent.messages, preview)
+    summary = ""
+    if session_summarizer is not None:
+        try:
+            summary = session_summarizer.summarize(agent.provider, agent.messages)
+        except Exception:
+            summary = ""
+        if not summary:
+            renderer.warn("Session summary generation failed; saving without summary.")
+    sid = session_store.save(agent.messages, preview, summary)
     renderer.info(f"Saved session {sid} ({len(agent.messages)} messages).")
 
 
@@ -425,6 +452,7 @@ def repl(
     one_shot: str | None,
     memory_extractor=None,
     skill_loader=None,
+    session_summarizer=None,
 ) -> None:
     renderer.info(f"OhWangAgent — provider={config.provider} model={config.model} mode={agent.permissions.mode.label}")
     renderer.info("Type /help for commands, /exit to quit.")
@@ -524,7 +552,7 @@ def repl(
             renderer.info(rendered.strip() or "No todos.")
             continue
         if line == "/save":
-            _cmd_save(agent, renderer, session_store)
+            _cmd_save(agent, renderer, session_store, session_summarizer)
             continue
         if line == "/resume":
             _cmd_resume(agent, renderer, session_store)
@@ -554,6 +582,7 @@ def main(argv=None) -> int:
         memory_extractor,
         skill_loader,
         flags,
+        session_summarizer,
     ) = build_agent(args, run_lock)
     try:
         repl(
@@ -567,6 +596,7 @@ def main(argv=None) -> int:
             one_shot=args.prompt,
             memory_extractor=memory_extractor,
             skill_loader=skill_loader,
+            session_summarizer=session_summarizer,
         )
     finally:
         scheduler.stop()

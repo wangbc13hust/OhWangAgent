@@ -108,6 +108,27 @@ def test_memory_write_tool():
     assert store.get_fact("style") == "use black formatter"
 
 
+def test_memory_write_tool_user_scope(tmp_path):
+    home = tmp_path / "home"
+    store = MemoryStore(str(tmp_path), home_dir=str(home))
+    tool = MemoryWriteTool(store)
+    r = tool.execute({"key": "k", "value": "v", "scope": "user"})
+    assert r.is_error is False
+    assert store.get_fact("k", scope="user") == "v"
+
+
+def test_memory_read_tool_scope_user(tmp_path):
+    home = tmp_path / "home"
+    store = MemoryStore(str(tmp_path), home_dir=str(home))
+    store.add_fact("pk", "project value", scope="project")
+    store.add_fact("uk", "user value", scope="user")
+    tool = MemoryReadTool(store)
+    r = tool.execute({"query": "value", "scope": "user"})
+    assert r.is_error is False
+    assert "uk" in r.content
+    assert "pk" not in r.content
+
+
 def test_memory_persistence():
     d = tempfile.mkdtemp()
     store1 = MemoryStore(d)
