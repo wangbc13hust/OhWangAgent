@@ -1,0 +1,54 @@
+# OhWangAgent 变更日志
+
+> 按日期倒序记录开发进度、问题修复与办公场景验证。
+> 测试规模演进：180 → 212 → 222 → 224（全绿）。
+
+---
+
+## 2026-08-01
+
+### 功能开发
+
+| 提交 | 内容 |
+| :--- | :--- |
+| `c1c69fd` | **P3-A / P3-B 完成**：自动记忆提取（`MemoryExtractor`，会话增长≥10 条自动提炼事实入库）、hooks 系统（`HookManager`，pre/post tool + notif，`.ohwang/hooks.json` 命令钩子）、策略上限（`PolicyLimits`，`.ohwang/policy.json`）、使用统计（`UsageTracker`，`/summary` 命令）、`config` / `sleep` 工具 |
+| `9b95c37` | **P3-C 完成**：`synthetic_output`（展示文本不进模型上下文）、`brief`（会话进度简报）、`snip`（保存输出片段到 `.ohwang/snips/`）三个工具，接线 agent + CLI |
+
+### 文档
+
+| 提交 | 内容 |
+| :--- | :--- |
+| `f76e1ca` | 新增 `docs/ARCHITECTURE.md`（模块图、Agent 循环、权限/钩子/策略/记忆/调度机制、扩展点、数据目录、已知缺口）；README 增加入口链接并修正测试数 |
+| — | `docs/ROADMAP.md` 标记 P3-A/P3-B/P3-C 为 ✅，工具盘点 24→27 |
+
+### 问题修复（办公日模拟中发现）
+
+| 提交 | 问题 | 修复 |
+| :--- | :--- | :--- |
+| `c1c69fd` | Windows 控制台中文乱码 | `setup_utf8()`：`SetConsoleOutputCP(65001)` + stdout/stderr 强制 UTF-8 |
+| `2146581` | openai/anthropic SDK 默认超时 10 分钟，慢网络假死 | `timeout=60` + `max_retries=2`，网络错误包装为友好信息 |
+| `2146581` | DuckDuckGo 不可达时 `web_search` 静默返回空，agent 盲目重试 | `SearchError` 异常，`web_search` 明确报 FAIL，agent 自动改用 `web_fetch` 兜底 |
+| `2146581` | 管道/脚本输入被按 GBK 解码，产生孤立代理项导致 API 报错 | `setup_utf8()` 增加 stdin 重配置为 UTF-8 + `SetConsoleCP(65001)` |
+
+### 办公日场景验证（真实 DeepSeek 模型）
+
+| 场景 | 结果 |
+| :--- | :--- |
+| 晨会转录 → 正式会议纪要 | ✅ 自动生成 9 项带负责人/截止日期的待办清单 |
+| 销售数据分析 → 周销售简报 | ✅ 自动写脚本计算渠道占比/退款率并成文 |
+| 网络调研 → 摘要 | ✅ web_search 失败后自动改用必应抓取，产出 130 字摘要 |
+| todo 驱动多步周报 | ✅ 建清单→逐步执行→更新状态→成文 |
+| REPL `/summary` `/save` `/resume` | ✅ 会话保存与恢复、使用统计正常 |
+
+### 测试
+
+224 个测试全绿（本轮 +44：记忆提取、hooks、策略/摘要、config/sleep、输出工具、agent 集成、搜索容错）。
+
+---
+
+## 2026-07-31（历史）
+
+- `f1dd62b` MVP → `29114c6` P0（压缩/todo/plan/会话）→ `d58077d` P1+P2（web/skill/plugin/lsp/memory/flags/TUI）
+- `63f730f` P1 接线 + 权限规则 + UTF-8 控制台
+- `00310af` P3 工具批（powershell/tool_search/worktree/cron/browser）+ DeepSeek v4 Provider
+- `433b371` +50 单测与办公场景测试（180 全绿）；修复 provider schema 与 plan-mode 还原；办公 agent 定位

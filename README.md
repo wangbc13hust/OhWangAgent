@@ -19,7 +19,7 @@ CLI / REPL  ──►  Agent loop  ──►  Provider (Anthropic | OpenAI-compa
 ```
 
 详细设计见 **`docs/ARCHITECTURE.md`**（模块图、Agent 循环、权限/钩子/策略/
-记忆/调度机制、扩展点、数据目录、已知缺口）。
+记忆/调度机制、扩展点、数据目录、已知缺口）。每日进度见 **`docs/CHANGELOG.md`**。
 
 - **`ohwang/agent.py`** — the loop: LLM → parse tool_use → run tool → feed
   result back → repeat until the model stops calling tools.
