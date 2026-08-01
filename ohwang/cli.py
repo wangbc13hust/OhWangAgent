@@ -394,6 +394,15 @@ def repl(
         if line == "/summary":
             renderer.info(agent.usage.report() if agent.usage else "Usage tracking off.")
             renderer.info(f"Iterations: {agent.iterations}  Messages: {len(agent.messages)}")
+            try:
+                tok = agent.provider.usage_report()
+                renderer.info(
+                    f"Tokens: {tok['total_tokens']} total "
+                    f"({tok['prompt_tokens']} in / {tok['completion_tokens']} out, "
+                    f"{tok['calls']} calls)"
+                )
+            except Exception:
+                pass
             continue
         if line == "/skills":
             if skill_loader is None:

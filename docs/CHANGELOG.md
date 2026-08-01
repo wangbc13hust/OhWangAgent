@@ -1,11 +1,24 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412（全绿）。
 
 ---
 
 ## 2026-08-01
+
+### Token 消耗实测 + usage 统计能力
+
+| 提交 | 内容 |
+| :--- | :--- |
+| — | **API token 统计**：`BaseProvider` 增 `usage_prompt_tokens`/`usage_completion_tokens`/`usage_calls` + `_record_usage`/`usage_report`；`OpenAIProvider` 流式启用 `stream_options.include_usage`，从 API 精确获取每轮 prompt/completion tokens（deepseek 验证有效） |
+| — | **`/summary` 显示 token**：新增 "Tokens: N total (X in / Y out, Z calls)" 行，用户可实时查看会话消耗 |
+| — | **办公场景实测**（发布会要点简报，12 轮迭代/24 消息/3 次 API）：总 **74348 tokens**（prompt 71193 96% + completion 3155）；prompt 大头是 agentic 循环每轮重发消息历史 + system/tools 固定开销 |
+| — | **优化收益量化**：每轮迭代固定重复开销 = system(236) + 记忆(348) + tools(1910) ≈ 2494 tokens；12 轮迭代优化前 29928 → 优化后 2494，**节省约 27434 tokens/场景（重复开销降 92%，占场景总 token 的 37%）** |
+
+### 测试
+
+412 个测试全绿（本轮 +2：provider usage 累积、openai provider 从流式 chunk 记录 usage）。
 
 ### Token 消耗优化（降低 API 成本）
 

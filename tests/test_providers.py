@@ -387,3 +387,75 @@ def test_anthropic_chat_wraps_api_error(monkeypatch):
     p = AnthropicProvider("k", "m")
     with pytest.raises(RuntimeError, match="API request failed"):
         list(p.chat("sys", [], [], 100))
+
+
+def test_provider_usage_accumulates():
+    from ohwang.providers.base import BaseProvider
+
+    class P(BaseProvider):
+        name = "p"
+
+        def chat(self, system, messages, tools, max_tokens):
+            yield from ()
+
+    p = P("k", "m")
+    p._record_usage(100, 20)
+    p._record_usage(50, 30)
+    rep = p.usage_report()
+    assert rep["calls"] == 2
+    assert rep["prompt_tokens"] == 150
+    assert rep["completion_tokens"] == 50
+    assert rep["total_tokens"] == 200
+
+
+def test_openai_provider_records_usage_from_chunks():
+    from ohwang.providers.openai_provider import OpenAIProvider
+
+    class _Usage:
+        prompt_tokens = 10
+        completion_tokens = 5
+
+    class _Chunk:
+        def __init__(self, usage=None, choices=None):
+            self.usage = usage
+            self.choices = choices or []
+
+    chunks = [_Chunk(usage=_Usage())]
+
+    class _Stream:
+        def __init__(self):
+            self._i = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self._i >= len(chunks):
+                raise StopIteration
+            c = chunks[self._i]
+            self._i += 1
+            return c
+
+    class _Completions:
+        def create(self, **kw):
+            return _Stream()
+
+    class _Chat:
+        def __init__(self):
+            self.completions = _Completions()
+
+    class _FakeClient:
+        def __init__(self, **kw):
+            self.chat = _Chat()
+
+    import ohwang.providers.openai_provider as mod
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mod.OpenAI, "__new__", lambda cls, *a, **kw: _FakeClient())
+    p = OpenAIProvider("k", "m")
+    list(p.chat("sys", [], [], 10))
+    rep = p.usage_report()
+    assert rep["calls"] == 1
+    assert rep["prompt_tokens"] == 10
+    assert rep["completion_tokens"] == 5
+    monkeypatch.undo()

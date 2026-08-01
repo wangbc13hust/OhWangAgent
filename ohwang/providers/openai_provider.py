@@ -114,6 +114,7 @@ class OpenAIProvider(BaseProvider):
             "messages": openai_messages,
             "max_tokens": max_tokens,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         if tools:
             kwargs["tools"] = _convert_tools(tools)
@@ -128,6 +129,12 @@ class OpenAIProvider(BaseProvider):
 
         tool_acc: dict[int, dict] = {}
         for chunk in stream:
+            usage = getattr(chunk, "usage", None)
+            if usage is not None:
+                self._record_usage(
+                    getattr(usage, "prompt_tokens", 0) or 0,
+                    getattr(usage, "completion_tokens", 0) or 0,
+                )
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]
