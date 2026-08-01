@@ -1,11 +1,24 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232（全绿）。
 
 ---
 
 ## 2026-08-01
+
+### 代码审查（本轮）
+
+| 提交 | 内容 |
+| :--- | :--- |
+| — | **P1 记忆系统接线**：`MemoryReadTool`/`MemoryWriteTool` 此前有实现+测试但从未注册，且 facts 只写不读。修复：`default_tools()` 新增 `memory_store` 参数注册两个工具；`Agent._effective_system()` 将 `render_context()`（CLAUDE.md/AGENTS.md + facts）注入 system prompt；cli 注入主 agent / 子 agent factory / tools |
+| — | **P2 LSP 接线**：`LSPClient`+`LSPDiagnoseTool` 此前为死代码。新增 `load_lsp_tools()`（仿 MCP 读取 `.ohwang/lsp.json`，支持 `{"command":...}` 与 `{"servers":{...}}` 两种格式），cli 在 `lsp` 特性开启时加载；`lsp_diagnose` 工具由此可被模型使用 |
+
+### 测试
+
+232 个测试全绿（本轮 +8：memory 工具注册/未注册、system prompt 注入、LSP 加载器无配置/非法配置/命令缺失/空 servers 格式）。
+
+---
 
 ### 功能开发
 

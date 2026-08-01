@@ -26,6 +26,7 @@ class Agent:
         hooks=None,
         policy=None,
         usage=None,
+        memory_store=None,
     ) -> None:
         self.provider = provider
         self.tools = tools
@@ -33,6 +34,7 @@ class Agent:
         self.config = config
         self.system = system
         self.todo_store = todo_store
+        self.memory_store = memory_store
         self.compactor = compactor
         self.hooks = hooks
         self.policy = policy
@@ -47,9 +49,14 @@ class Agent:
             self.todo_store.set([])
 
     def _effective_system(self) -> str:
+        parts = [self.system]
         if self.todo_store is not None:
-            return self.system + self.todo_store.render()
-        return self.system
+            parts.append(self.todo_store.render())
+        if self.memory_store is not None:
+            memory_ctx = self.memory_store.render_context()
+            if memory_ctx:
+                parts.append("\n\n# Project Memory\n" + memory_ctx)
+        return "\n".join(p for p in parts if p)
 
     def run(
         self,

@@ -91,8 +91,8 @@ ohwang/
 │   ├── worktree.py        enter/exit_worktree
 │   ├── config.py          config（运行时权限规则）
 │   ├── sleep.py / synthetic_output.py / brief.py / snip.py   P3-C 输出类
-│   ├── memory.py          memory_read/write（已定义，未注册）
-│   └── lsp_diagnose.py    lsp_diagnose（已定义，未注册）
+│   ├── memory.py          memory_read/write（经 default_tools(memory_store=...) 注册）
+│   └── lsp_diagnose.py    lsp_diagnose（经 load_lsp_tools() 注册，读取 .ohwang/lsp.json）
 │
 ├── services/             横切服务
 │   ├── compact.py         上下文压缩（token 阈值）
@@ -242,8 +242,10 @@ ohwang/
 
 ## 7. 已知缺口
 
-- `tools/memory.py`（memory_read/write）与 `tools/lsp_diagnose.py` 已定义，
-  尚未注册到 `default_tools()`，需要时接线（供模型调用项目记忆 / LSP 诊断）。
+- memory 工具（`memory_read/write`）已接线：`default_tools(memory_store=...)` 注册，
+  且 `Agent._effective_system()` 注入项目记忆上下文（CLAUDE.md/AGENTS.md + facts）。
+- lsp_diagnose 已接线：cli 在 `lsp` 特性开启时经 `load_lsp_tools()` 读取 `.ohwang/lsp.json`
+  注册工具；特性默认关闭（`flags.py` 默认 `lsp: False`）。
 - Textual TUI（`tui/widgets/app.py`）为实验性，正式入口仍用 Rich REPL。
 - 路线图 P3-D（Task v2 / VerifyPlanExecution）与 P4（平台化）待实现，
   详见 `docs/ROADMAP.md`。

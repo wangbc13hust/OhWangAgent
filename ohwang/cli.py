@@ -112,6 +112,10 @@ def build_agent(args: argparse.Namespace):
     )
     todo_store = TodoStore()
     usage = UsageTracker()
+    memory_store = MemoryStore(config.workdir)
+    memory_extractor = (
+        MemoryExtractor(memory_store) if flags.is_enabled("memory") else None
+    )
 
     system_prompt = build_system_prompt(config.workdir)
 
@@ -139,10 +143,15 @@ def build_agent(args: argparse.Namespace):
     def _agent_factory():
         return Agent(
             provider,
-            default_tools(todo_store=todo_store, permissions=permissions),
+            default_tools(
+                todo_store=todo_store,
+                permissions=permissions,
+                memory_store=memory_store,
+            ),
             PermissionManager(mode=Mode.AUTO),
             config,
             system_prompt,
+            memory_store=memory_store,
         )
 
     tools = default_tools(
@@ -156,6 +165,7 @@ def build_agent(args: argparse.Namespace):
         usage=usage,
         display_callback=lambda text: renderer.console.print(text, highlight=False),
         iterations_getter=lambda: agent.iterations,
+        memory_store=memory_store,
     )
 
     if not args.no_mcp:
@@ -163,6 +173,12 @@ def build_agent(args: argparse.Namespace):
         added = load_mcp_tools(config.workdir, tools)
         if added:
             renderer.info(f"Loaded {len(added)} MCP tool(s): {', '.join(added)}")
+
+    if flags.is_enabled("lsp"):
+        from .services.lsp import load_lsp_tools
+        added = load_lsp_tools(config.workdir, tools)
+        if added:
+            renderer.info(f"Loaded LSP server: {', '.join(added)}")
 
     if flags.is_enabled("proactive") and not args.no_proactive:
         scheduler.start()
@@ -186,10 +202,6 @@ def build_agent(args: argparse.Namespace):
     policy = PolicyLimits.load(config.workdir)
     if loaded_hooks:
         renderer.info(f"Loaded {loaded_hooks} hook(s) from .ohwang/hooks.json.")
-    memory_store = MemoryStore(config.workdir)
-    memory_extractor = (
-        MemoryExtractor(memory_store) if flags.is_enabled("memory") else None
-    )
 
     agent = Agent(
         provider,
@@ -202,6 +214,7 @@ def build_agent(args: argparse.Namespace):
         hooks=hooks,
         policy=policy,
         usage=usage,
+        memory_store=memory_store,
     )
     return agent, renderer, config, session_store, scheduler, memory_extractor, flags
 

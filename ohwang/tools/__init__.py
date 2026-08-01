@@ -18,6 +18,7 @@ def default_tools(
     usage=None,
     display_callback=None,
     iterations_getter=None,
+    memory_store=None,
 ) -> ToolRegistry:
     """Build a registry with the core coding tools + extensions.
 
@@ -33,6 +34,7 @@ def default_tools(
       usage           — UsageTracker for the brief tool
       display_callback — callable(str) for synthetic_output
       iterations_getter — callable() -> int for the brief tool
+      memory_store    — enables memory_read/memory_write tools
     """
     from .bash import BashTool
     from .file_edit import FileEditTool
@@ -81,6 +83,11 @@ def default_tools(
     if todo_store is not None:
         from .todo import TodoWriteTool
         registry.register(TodoWriteTool(todo_store))
+
+    if memory_store is not None:
+        from .memory import MemoryReadTool, MemoryWriteTool
+        registry.register(MemoryReadTool(memory_store))
+        registry.register(MemoryWriteTool(memory_store))
 
     if permissions is not None:
         from .plan_mode import EnterPlanModeTool, ExitPlanModeTool

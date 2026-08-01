@@ -1,13 +1,16 @@
 from ohwang.services.lsp import (
     LSPClient,
+    load_lsp_tools,
     _path_to_uri,
     _guess_language,
     _severity_name,
     _read_file,
 )
 from ohwang.tools.lsp_diagnose import LSPDiagnoseTool
+from ohwang.tools.registry import ToolRegistry
 import tempfile
 import os
+import json
 
 
 def test_path_to_uri():
@@ -62,3 +65,43 @@ def test_lsp_diagnose_tool_schema():
     assert tool.name == "lsp_diagnose"
     assert tool.default_permission == "allow"
     assert "file_path" in tool.input_schema["properties"]
+
+
+def test_load_lsp_tools_no_config():
+    d = tempfile.mkdtemp()
+    registry = ToolRegistry()
+    added = load_lsp_tools(d, registry)
+    assert added == []
+
+
+def test_load_lsp_tools_invalid_config():
+    d = tempfile.mkdtemp()
+    lsp_dir = os.path.join(d, ".ohwang")
+    os.makedirs(lsp_dir, exist_ok=True)
+    with open(os.path.join(lsp_dir, "lsp.json"), "w") as f:
+        f.write("invalid json")
+    registry = ToolRegistry()
+    added = load_lsp_tools(d, registry)
+    assert added == []
+
+
+def test_load_lsp_tools_command_not_found():
+    d = tempfile.mkdtemp()
+    lsp_dir = os.path.join(d, ".ohwang")
+    os.makedirs(lsp_dir, exist_ok=True)
+    with open(os.path.join(lsp_dir, "lsp.json"), "w") as f:
+        json.dump({"command": "definitely_missing_lsp_server_xyz"}, f)
+    registry = ToolRegistry()
+    added = load_lsp_tools(d, registry)
+    assert added == []
+
+
+def test_load_lsp_tools_empty_servers_format():
+    d = tempfile.mkdtemp()
+    lsp_dir = os.path.join(d, ".ohwang")
+    os.makedirs(lsp_dir, exist_ok=True)
+    with open(os.path.join(lsp_dir, "lsp.json"), "w") as f:
+        json.dump({"servers": {"pyright": {"command": "definitely_missing_lsp_server_xyz"}}}, f)
+    registry = ToolRegistry()
+    added = load_lsp_tools(d, registry)
+    assert added == []

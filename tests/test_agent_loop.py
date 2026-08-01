@@ -72,5 +72,40 @@ def test_agent_loop():
     print("PASS: agent loop ran 2 iterations, executed file_read, fed result back.")
 
 
+def test_effective_system_injects_memory_context():
+    from ohwang.services.memory import MemoryStore
+
+    workdir = tempfile.mkdtemp()
+    store = MemoryStore(workdir)
+    store.add_fact("test_cmd", "pytest -q", tags=["test"])
+
+    config = Config(workdir=workdir, auto_approve=True).resolve()
+    provider = MockProvider()
+    tools = default_tools(memory_store=store)
+    permissions = PermissionManager(auto_approve=True)
+    agent = Agent(
+        provider, tools, permissions, config, build_system_prompt(workdir),
+        memory_store=store,
+    )
+
+    system = agent._effective_system()
+    assert "pytest -q" in system
+    assert "test_cmd" in system
+    assert "Project Memory" in system
+
+
+def test_effective_system_without_memory():
+    workdir = tempfile.mkdtemp()
+    config = Config(workdir=workdir, auto_approve=True).resolve()
+    provider = MockProvider()
+    agent = Agent(
+        provider, default_tools(), PermissionManager(auto_approve=True),
+        config, build_system_prompt(workdir),
+    )
+    assert agent._effective_system() == build_system_prompt(workdir)
+
+
 if __name__ == "__main__":
     test_agent_loop()
+    test_effective_system_injects_memory_context()
+    test_effective_system_without_memory()

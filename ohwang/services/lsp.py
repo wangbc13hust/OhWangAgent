@@ -197,3 +197,40 @@ def _guess_language(path: str) -> str:
 
 def _severity_name(code: int) -> str:
     return {1: "error", 2: "warning", 3: "info", 4: "hint"}.get(code, "error")
+
+
+def load_lsp_tools(workdir: str, registry) -> list[str]:
+    """Load an LSP server from .ohwang/lsp.json and register lsp_diagnose.
+
+    Supported formats:
+      {"command": "pyright-langserver", "args": ["--stdio"]}
+      {"servers": {"pyright": {"command": "...", "args": [...]}}}  (first wins)
+    """
+    path = os.path.join(workdir, ".ohwang", "lsp.json")
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except Exception:
+        return []
+
+    cfg = config
+    servers = config.get("servers") or {}
+    if servers:
+        cfg = next(iter(servers.values()))
+    command = cfg.get("command") if isinstance(cfg, dict) else None
+    if not command:
+        return []
+
+    from ..tools.lsp_diagnose import LSPDiagnoseTool
+
+    client = LSPClient(command, cfg.get("args") or [], workdir=workdir)
+    try:
+        client.start()
+    except Exception:
+        return []
+    if not client._initialized:
+        return []
+    registry.register(LSPDiagnoseTool(client))
+    return ["lsp_diagnose"]

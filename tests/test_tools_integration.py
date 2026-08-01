@@ -36,6 +36,27 @@ def test_default_tools_without_todo():
     assert "bash" in names
 
 
+def test_default_tools_with_memory_store():
+    from ohwang.services.memory import MemoryStore
+    import tempfile
+
+    d = tempfile.mkdtemp()
+    registry = default_tools(
+        search_provider=MockSearchProvider(),
+        memory_store=MemoryStore(d),
+    )
+    names = registry.names()
+    assert "memory_read" in names
+    assert "memory_write" in names
+
+
+def test_default_tools_without_memory_store():
+    registry = default_tools(search_provider=MockSearchProvider())
+    names = registry.names()
+    assert "memory_read" not in names
+    assert "memory_write" not in names
+
+
 def test_default_tools_without_permissions():
     registry = default_tools(search_provider=MockSearchProvider())
     names = registry.names()
