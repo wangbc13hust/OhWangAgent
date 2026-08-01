@@ -33,7 +33,7 @@ def default_tools(
       scheduler       — enables cron_create/delete/list (proactive mode)
       flags           — FeatureFlags for gating web_browser
       usage           — UsageTracker for the brief tool
-      display_callback — callable(str) for synthetic_output
+      display_callback — callable(str) for synthetic_output / send_user_file
       iterations_getter — callable() -> int for the brief tool
       memory_store    — enables memory_read/memory_write tools
       skill_loader    — enables the skill tool
@@ -51,6 +51,7 @@ def default_tools(
     from .synthetic_output import SyntheticOutputTool
     from .brief import BriefTool
     from .snip import SnipTool
+    from .send_user_file import SendUserFileTool
     from .web_fetch import WebFetchTool
     from .web_search import WebSearchTool
 
@@ -73,6 +74,7 @@ def default_tools(
     registry.register(SyntheticOutputTool(display_callback))
     registry.register(BriefTool(usage, todo_store, iterations_getter))
     registry.register(SnipTool(workdir or os.getcwd()))
+    registry.register(SendUserFileTool(display_callback))
 
     if search_provider is not None:
         registry.register(WebSearchTool(search_provider))

@@ -288,6 +288,37 @@ def _run_once(
             pass
 
 
+def _suggest_prompts(workdir: str, agent: Agent) -> list[str]:
+    """Rule-based prompt suggestions for a fresh session (no extra API calls)."""
+    suggestions: list[str] = []
+    wd = os.path.abspath(workdir)
+    try:
+        md_files = [
+            f for f in os.listdir(wd)
+            if f.lower().endswith((".md", ".txt", ".csv")) and os.path.isfile(os.path.join(wd, f))
+        ]
+    except OSError:
+        md_files = []
+
+    if agent.todo_store is not None and agent.todo_store.todos:
+        suggestions.append("更新待办进度或查看当前任务清单")
+    if md_files:
+        names = "、".join(md_files[:3])
+        suggestions.append(f"总结或整理现有资料（如 {names}）")
+    if agent.memory_store is not None:
+        try:
+            facts = agent.memory_store.list_facts()
+            if facts:
+                suggestions.append("回顾项目记忆中的关键决策")
+        except Exception:
+            pass
+    if agent.iterations > 0:
+        suggestions.append("继续上一轮未完成的工作")
+    if len(suggestions) < 2:
+        suggestions.append("告诉我今天要完成什么工作")
+    return suggestions[:3]
+
+
 def _cmd_resume(agent, renderer, session_store):
     items = session_store.list()
     if not items:
@@ -347,6 +378,13 @@ def repl(
     if one_shot:
         _run_once(agent, renderer, one_shot, run_lock, memory_extractor)
         return
+
+    if not agent.messages:
+        suggestions = _suggest_prompts(config.workdir, agent)
+        if suggestions:
+            renderer.info("Maybe start with:")
+            for s in suggestions:
+                renderer.info(f"  • {s}")
 
     while True:
         try:

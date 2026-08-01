@@ -137,6 +137,18 @@ def test_read_stdin_line_eof(monkeypatch):
         read_stdin_line()
 
 
+def test_read_stdin_line_strips_utf8_bom(monkeypatch):
+    class _Buf:
+        def readline(self):
+            return b"\xef\xbb\xbf/exit\r\n"
+
+    class _Stdin:
+        buffer = _Buf()
+
+    monkeypatch.setattr("ohwang.tui.render.sys.stdin", _Stdin())
+    assert read_stdin_line() == "/exit"
+
+
 def test_stream_text_small_chunks_buffered(monkeypatch):
     out = []
     monkeypatch.setattr("ohwang.tui.render.sys.stdout", _Capture(out))

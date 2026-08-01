@@ -1,6 +1,6 @@
 import os
 
-from ohwang.cli import _load_env
+from ohwang.cli import _load_env, _suggest_prompts
 
 
 def test_load_env_from_workdir(tmp_path):
@@ -25,3 +25,60 @@ def test_load_env_does_not_override_existing(monkeypatch, tmp_path):
 def test_load_env_missing_file(tmp_path):
     _load_env(str(tmp_path))
     assert os.environ.get("SHOULD_NOT_EXIST_XYZ") is None
+
+
+def _fake_agent(todos=None, facts=None, iterations=0):
+    from ohwang.agent import Agent
+    from ohwang.config import Config
+    from ohwang.modes import Mode
+    from ohwang.permissions import PermissionManager
+    from ohwang.services.memory import MemoryStore
+    from ohwang.tools.registry import ToolRegistry
+    from ohwang.tools.todo import TodoStore
+    from ohwang.tools.base import BaseTool, ToolResult
+
+    class T(BaseTool):
+        name = "t"
+        description = "d"
+        input_schema = {}
+
+        def execute(self, input):
+            return ToolResult(content="ok")
+
+    agent = Agent(
+        provider=None,
+        tools=ToolRegistry().register(T()),
+        permissions=PermissionManager(mode=Mode.AUTO),
+        config=Config(workdir=os.getcwd()).resolve(),
+        system="sys",
+    )
+    agent.iterations = iterations
+    if todos is not None:
+        agent.todo_store = TodoStore()
+        agent.todo_store.set(todos)
+    if facts is not None:
+        agent.memory_store = MemoryStore(os.path.join(os.getcwd(), ".ohwang"))
+        agent.memory_store._facts_cache = {k: {"value": v, "tags": []} for k, v in facts.items()}
+        agent.memory_store._facts_mtime = 1
+    return agent
+
+
+def test_suggest_prompts_empty_workdir(tmp_path):
+    agent = _fake_agent()
+    suggestions = _suggest_prompts(str(tmp_path), agent)
+    assert isinstance(suggestions, list)
+    assert 1 <= len(suggestions) <= 3
+    assert suggestions
+
+
+def test_suggest_prompts_with_files(tmp_path):
+    (tmp_path / "meeting.md").write_text("notes", encoding="utf-8")
+    agent = _fake_agent()
+    suggestions = _suggest_prompts(str(tmp_path), agent)
+    assert any("meeting.md" in s for s in suggestions)
+
+
+def test_suggest_prompts_with_todos(tmp_path):
+    agent = _fake_agent(todos=[{"content": "写周报", "status": "pending", "priority": "high"}])
+    suggestions = _suggest_prompts(str(tmp_path), agent)
+    assert any("待办" in s for s in suggestions)

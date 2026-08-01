@@ -60,6 +60,8 @@ def read_stdin_line(prompt: str = "") -> str:
             text = raw.decode(locale.getpreferredencoding(False))
         except (UnicodeDecodeError, LookupError):
             pass
+    if text.startswith("\ufeff"):
+        text = text[len("\ufeff"):]
     return text.rstrip("\r\n")
 
 

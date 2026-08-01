@@ -62,13 +62,13 @@ search（DuckDuckGo/Tavily）、mcp、worktree、scheduler（cron）、browser�
 | Cron 调度 | ✅ | ✅ | — |
 | **Sleep / Monitor / RemoteTrigger** | ✅ | ⚠️ Sleep 已实现 | P3 |
 | **ToolSearch** | ✅ | ✅ | — |
-| **SyntheticOutput / Brief / Snip / SendUserFile** | ✅ | ⚠️ 3/4 | P3 |
+| **SyntheticOutput / Brief / Snip / SendUserFile** | ✅ | ✅ | P3 |
 | **ConfigTool** | ✅ | ✅ | P3 |
 | **自动记忆提取（extractMemories）** | ✅ | ✅ | **P3-高** |
 | **hooks（preToolUse/postToolUse/notifs）** | ✅ | ✅ | **P3-高** |
 | **toolUseSummary / AgentSummary** | ✅ | ✅ | P3 |
 | **policyLimits 策略执行** | ✅ | ✅ | P3 |
-| **PromptSuggestion** | ✅ | ❌ | P3 |
+| **PromptSuggestion** | ✅ | ✅ | P3 |
 | IDE bridge / swarm / OAuth / 遥测 | ✅ | ❌ | P4 |
 
 ---
