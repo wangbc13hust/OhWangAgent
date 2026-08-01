@@ -1,8 +1,9 @@
 # OhWangAgent
 
-A Claude-Code-style coding agent built in Python. It reproduces the core
-architecture of Anthropic's Claude Code: an agentic loop that drives tool
-calls, with a pluggable multi-model provider layer.
+An interactive CLI **office agent** built in Python: write and organize
+documents, take meeting notes, extract and summarize information, search files
+and the web, manage task lists, and edit code — all driven by an agentic loop
+with a pluggable multi-model provider layer.
 
 ## Architecture
 
@@ -11,7 +12,7 @@ CLI / REPL  ──►  Agent loop  ──►  Provider (Anthropic | OpenAI-compa
                       │
                       ▼
                  Tool registry
-   (bash, file_read, file_write, file_edit, grep, glob)
+   (bash, powershell, file_*, grep, glob, web_*, todo, cron, worktree, ...)
                       │
                       ▼
                Permission manager  ──►  ask / allow / always
@@ -20,14 +21,17 @@ CLI / REPL  ──►  Agent loop  ──►  Provider (Anthropic | OpenAI-compa
 - **`ohwang/agent.py`** — the loop: LLM → parse tool_use → run tool → feed
   result back → repeat until the model stops calling tools.
 - **`ohwang/providers/`** — `BaseProvider` emits unified streaming events
-  (`text` / `tool_use` / `stop`). `AnthropicProvider` passes through; the
-  `OpenAIProvider` converts to/from OpenAI function-calling, so any
-  OpenAI-compatible endpoint works (OpenAI, DeepSeek, Kimi, Qwen, local…).
+  (`text` / `tool_use`). The `OpenAIProvider` converts to/from OpenAI
+  function-calling, so any OpenAI-compatible endpoint works (DeepSeek, Kimi,
+  Qwen, local…); `AnthropicProvider` passes through.
 - **`ohwang/tools/`** — each tool is a `BaseTool` subclass with a JSON schema,
   a default permission, and an `execute()` method. Add a tool by dropping in a
   class and registering it.
 - **`ohwang/permissions.py`** — every tool call is checked: read-only tools
   auto-allow; mutating tools ask (y/n/always) unless `--auto-approve`.
+  `.ohwang/settings.json` can set `allow` / `ask` / `deny` glob rules.
+- **`ohwang/services/`** — compact, session, settings, search, mcp, worktree,
+  scheduler, browser.
 - **`ohwang/tui/render.py`** — Rich-based streaming output.
 
 ## Install
@@ -40,49 +44,55 @@ pip install -e .
 
 ## Configure
 
-Set an API key (choose your provider):
+Set an API key for your provider:
 
 ```powershell
+# DeepSeek (default for office work)
+$env:DEEPSEEK_API_KEY = "sk-..."
+
 # Anthropic
 $env:ANTHROPIC_API_KEY = "sk-ant-..."
 
-# or OpenAI-compatible
-$env:OPENAI_API_KEY = "sk-..."
+# OpenAI / Kimi / Qwen / Zhipu…
+$env:OPENAI_API_KEY = "sk-..."   # + --base-url
 ```
+
+Providers and default models are defined in `ohwang/config.py`
+(`deepseek-v4-flash`, `glm-5.2`, `claude-sonnet-4-5-20250929`, …).
 
 ## Run
 
 ```powershell
-# interactive REPL (default provider: anthropic)
-ohwang
+# interactive REPL
+ohwang --provider deepseek
 
-# one-shot
-ohwang "read pyproject.toml and summarize it"
+# one-shot office task
+ohwang --provider deepseek "把今天的周会内容写成一份会议纪要"
 
-# OpenAI-compatible provider + custom model + auto-approve
-ohwang --provider openai --base-url https://api.deepseek.com --model deepseek-chat -y
+# auto-approve tool calls + plan mode
+ohwang --provider deepseek -y --plan
 
-# switch provider/model/model inside the REPL
-ohwang> /model claude-sonnet-4-5-20250929
+# switch provider/model inside the REPL
+ohwang> /model deepseek-v4-pro
 ohwang> /auto
 ohwang> /tools
-ohwang> /clear
+ohwang> /cron
+ohwang> /flags
+ohwang> /save
 ohwang> /exit
 ```
 
-## Roadmap (toward a full Claude Code clone)
+## Features
 
-This MVP covers the core loop + tools + multi-model providers. Remaining
-phases:
-
-- [ ] Context compaction when history grows long
-- [ ] Session history / `/resume`
-- [ ] Sub-agent tool (`AgentTool`) for parallel delegation
-- [ ] MCP client support
-- [ ] Skill / plugin system
-- [ ] Full TUI (Textual)
+- **Office workflows** — documents, meeting notes, reports, data extraction,
+  web research, todo-driven multi-step tasks (see `tests/test_scenarios.py`).
+- **Tools** — bash, powershell, file_read/write/edit, grep, glob,
+  web_fetch, web_search, todo_write, plan mode, ask_user, sub-agent,
+  cron scheduling, git worktree, MCP client, browser (Playwright).
+- **Context compaction**, session save/resume, `.ohwang/settings.json`
+  permission rules, feature flags, skills/plugins/LSP/memory.
+- **130+ unit tests + office scenario tests** (`tests/`).
 
 ## Status
 
-Educational project inspired by the publicly exposed Claude Code architecture.
-Not affiliated with Anthropic.
+Educational project. Not affiliated with Anthropic.

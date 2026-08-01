@@ -23,7 +23,7 @@ from .tui import Renderer
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="ohwang",
-        description="OhWangAgent — a Claude-Code-style coding agent.",
+        description="OhWangAgent — an interactive CLI office agent (documents, research, tasks, and code).",
     )
     p.add_argument("--provider", choices=list(PROVIDER_PRESETS), default="zhipu")
     p.add_argument("--model", default=None, help="Model id (overrides preset)")

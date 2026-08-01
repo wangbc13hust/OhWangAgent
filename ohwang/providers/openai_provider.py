@@ -17,9 +17,10 @@ def _convert_tools(tools: list[dict]) -> list[dict]:
                 "function": {
                     "name": t["name"],
                     "description": t.get("description", ""),
-                    "parameters": t.get(
-                        "input_schema", {"type": "object", "properties": {}}
-                    ),
+                    "parameters": t.get("input_schema") or {
+                        "type": "object",
+                        "properties": {},
+                    },
                 },
             }
         )

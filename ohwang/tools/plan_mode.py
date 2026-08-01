@@ -17,6 +17,7 @@ class EnterPlanModeTool(BaseTool):
         self.permissions = permissions
 
     def execute(self, input: dict) -> ToolResult:
+        self.permissions._plan_prev = self.permissions.mode
         self.permissions.mode = Mode.PLAN
         return ToolResult(
             content="Entered plan mode. Write/bash tools are now disabled; "
@@ -34,5 +35,7 @@ class ExitPlanModeTool(BaseTool):
         self.permissions = permissions
 
     def execute(self, input: dict) -> ToolResult:
-        self.permissions.mode = Mode.DEFAULT
+        prev = getattr(self.permissions, "_plan_prev", None)
+        self.permissions.mode = prev if prev is not None else Mode.DEFAULT
+        self.permissions._plan_prev = None
         return ToolResult(content="Exited plan mode. All tools re-enabled.")

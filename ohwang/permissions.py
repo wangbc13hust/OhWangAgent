@@ -47,6 +47,7 @@ class PermissionManager:
         self._deny: list[str] = list(deny or [])
         self._always_allow: set[str] = set()
         self.mode = mode if mode is not None else (Mode.AUTO if auto_approve else Mode.DEFAULT)
+        self._plan_prev: Optional[Mode] = None
 
     @property
     def auto_approve(self) -> bool:
