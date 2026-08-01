@@ -1,6 +1,6 @@
 # OhWangAgent 架构文档
 
-> 版本：v0.3.0 · 对应代码提交 `f0a24af` · 395 测试全绿（覆盖率 98%）
+> 版本：v0.3.0 · 对应代码提交 `f0a24af` · 404 测试全绿（覆盖率 98%）
 >
 > 定位：交互式 CLI **办公 agent** —— 文档撰写、会议纪要、资料检索、任务管理、
 > 报告生成 + 软件工程能力。架构对齐 Claude Code（Agent 循环 + 工具注册表 +
@@ -100,7 +100,7 @@ ohwang/
 │   ├── tokens.py          token 估算
 │   ├── session.py         会话保存/resume（.ohwang/sessions/）
 │   ├── settings.py        权限规则文件读写
-│   ├── search.py          DuckDuckGo / Tavily 搜索
+│   ├── search.py          Bing / DuckDuckGo / Tavily 搜索（可回退）
 │   ├── mcp.py             MCP 客户端 + 工具封装
 │   ├── worktree.py        git worktree 管理
 │   ├── scheduler.py       cron 调度器（proactive 模式）
@@ -182,7 +182,7 @@ ohwang/
 | `SessionStore` | 会话保存/resume | `.ohwang/sessions/*.json` |
 | `Scheduler` | cron 调度，agent 空闲时可后台执行任务 | — |
 | `MCPClient` | 外部 MCP 服务器工具 | `.ohwang/mcp.json` |
-| `SearchProvider` | DuckDuckGo / Tavily（后端不可达时抛 `SearchError`，供工具明确报错） | — |
+| `SearchProvider` | Tavily(有key) → Bing(默认,国内可达) → DDG 回退；不可达抛 `SearchError` | — |
 | `WorktreeManager` | git worktree | — |
 | `BrowserSession` | Playwright 浏览器 | — |
 
@@ -230,7 +230,7 @@ ohwang/
 
 ---
 
-## 6. 测试架构（`tests/`，395 个，覆盖率 98%）
+## 6. 测试架构（`tests/`，404 个，覆盖率 98%）
 
 - `helpers.py`：`ScriptedProvider`（重放事件序列）、`MockSearchProvider`、
   `build_agent()`——无网络、无真实模型的集成测试基座。

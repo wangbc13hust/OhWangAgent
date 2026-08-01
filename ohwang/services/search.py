@@ -79,9 +79,61 @@ class DuckDuckGoSearch(SearchProvider):
         return url
 
 
+class BingSearch(SearchProvider):
+    """Bing web search (no API key required). Reachable from mainland China,
+    making it a sensible default fallback when DuckDuckGo is blocked.
+    """
+
+    name = "bing"
+
+    def __init__(self, base_url: str = "https://cn.bing.com/search") -> None:
+        self.base_url = base_url
+
+    def search(self, query: str, max_results: int = 5) -> list[dict]:
+        try:
+            resp = httpx.get(
+                self.base_url,
+                params={"q": query},
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+                    )
+                },
+                timeout=15,
+                follow_redirects=True,
+            )
+        except Exception as exc:
+            raise SearchError(f"Bing unreachable: {exc}") from exc
+        if resp.status_code != 200:
+            raise SearchError(f"Bing returned HTTP {resp.status_code}")
+        return self._parse(resp.text, max_results)
+
+    @staticmethod
+    def _parse(text: str, max_results: int) -> list[dict]:
+        results: list[dict] = []
+        for item in re.findall(r"<li class=['\"]b_algo['\"].*?</li>", text, re.S):
+            a = re.search(r"<h2[^>]*>.*?<a[^>]*href=['\"]([^'\"]+)['\"][^>]*>(.*?)</a>", item, re.S)
+            p = re.search(r"<p[^>]*>(.*?)</p>", item, re.S)
+            if not a:
+                continue
+            title = html_mod.unescape(re.sub(r"<[^>]+>", "", a.group(2))).strip()
+            if not title:
+                continue
+            url = a.group(1).strip()
+            snippet = ""
+            if p:
+                snippet = html_mod.unescape(
+                    re.sub(r"<[^>]+>", "", p.group(1))
+                ).strip()
+            results.append({"title": title, "url": url, "snippet": snippet})
+            if len(results) >= max_results:
+                break
+        return results
+
+
 class TavilySearch(SearchProvider):
     name = "tavily"
-
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
 
@@ -111,7 +163,13 @@ class TavilySearch(SearchProvider):
 
 
 def make_search_provider() -> Optional[SearchProvider]:
+    """Pick the best available search provider.
+
+    Order: Tavily (API key) → Bing (keyless, reachable in mainland China) →
+    DuckDuckGo (keyless fallback). Callers may catch SearchError and retry
+    with the next provider.
+    """
     tavily = os.environ.get("TAVILY_API_KEY")
     if tavily:
         return TavilySearch(tavily)
-    return DuckDuckGoSearch()
+    return BingSearch()

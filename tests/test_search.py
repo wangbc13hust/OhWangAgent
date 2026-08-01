@@ -1,6 +1,7 @@
 import pytest
 
 from ohwang.services.search import (
+    BingSearch,
     DuckDuckGoSearch,
     SearchError,
     SearchProvider,
@@ -28,10 +29,10 @@ def test_tavily_search_provider_name():
     assert s.name == "tavily"
 
 
-def test_make_search_provider_returns_duckduckgo_by_default():
+def test_make_search_provider_returns_bing_by_default():
     provider = make_search_provider()
     assert provider is not None
-    assert provider.name == "duckduckgo"
+    assert provider.name == "bing"
 
 
 def test_make_search_provider_returns_tavily_with_env(monkeypatch):
@@ -158,3 +159,69 @@ def test_tavily_raises_search_error_on_failure(monkeypatch):
     s = TavilySearch(api_key="k")
     with pytest.raises(SearchError, match="unreachable"):
         s.search("q")
+
+
+BING_HTML = """
+<html><body>
+<li class="b_algo"><h2><a target="_blank" href="https://python.org/downloads/"><strong>Python</strong> Download</a></h2><p>A snippet about Python</p></li>
+<li class="b_algo"><h2><a target="_blank" href="https://runoob.com/python/"><strong>菜鸟</strong>教程</a></h2><p>Python 基础教程简介</p></li>
+</body></html>
+"""
+
+
+def test_bing_search_provider_name():
+    assert BingSearch().name == "bing"
+
+
+def test_bing_parse_results():
+    results = BingSearch._parse(BING_HTML, 5)
+    assert len(results) == 2
+    assert results[0]["title"] == "Python Download"
+    assert results[0]["url"] == "https://python.org/downloads/"
+    assert results[0]["snippet"] == "A snippet about Python"
+
+
+def test_bing_parse_respects_max_results():
+    results = BingSearch._parse(BING_HTML, 1)
+    assert len(results) == 1
+
+
+def test_bing_parse_empty():
+    assert BingSearch._parse("<html>no results</html>", 5) == []
+
+
+def test_bing_search_success(monkeypatch):
+    class Resp:
+        status_code = 200
+        text = BING_HTML
+
+    monkeypatch.setattr(
+        "ohwang.services.search.httpx.get", lambda *a, **k: Resp()
+    )
+    s = BingSearch()
+    results = s.search("hello", max_results=5)
+    assert len(results) == 2
+
+
+def test_bing_raises_search_error_on_network_failure(monkeypatch):
+    import httpx
+
+    def boom(*args, **kwargs):
+        raise httpx.ConnectTimeout("timed out")
+
+    monkeypatch.setattr(httpx, "get", boom)
+    s = BingSearch()
+    with pytest.raises(SearchError, match="unreachable"):
+        s.search("hello")
+
+
+def test_bing_raises_search_error_on_http_error(monkeypatch):
+    class Resp:
+        status_code = 503
+
+    monkeypatch.setattr(
+        "ohwang.services.search.httpx.get", lambda *a, **k: Resp()
+    )
+    s = BingSearch()
+    with pytest.raises(SearchError, match="503"):
+        s.search("hello")

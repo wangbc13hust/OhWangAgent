@@ -19,21 +19,29 @@ class WebSearchTool(BaseTool):
     }
     default_permission = "allow"
 
-    def __init__(self, provider) -> None:
+    def __init__(self, provider, fallbacks=None) -> None:
         self.provider = provider
+        self._fallbacks = list(fallbacks or [])
 
     def execute(self, input: dict) -> ToolResult:
         query = input["query"]
         max_results = input.get("max_results", 5)
-        try:
-            results = self.provider.search(query, max_results)
-        except Exception as exc:
-            return ToolResult(content=f"Search failed: {exc}", is_error=True)
-        if not results:
-            return ToolResult(content="No results found.")
-        lines = []
-        for i, r in enumerate(results, 1):
-            lines.append(
-                f"{i}. {r.get('title', '')}\n   {r.get('url', '')}\n   {r.get('snippet', '')}"
-            )
-        return ToolResult(content="\n".join(lines))
+        providers = [self.provider] + self._fallbacks
+        errors: list[str] = []
+        for provider in providers:
+            try:
+                results = provider.search(query, max_results)
+            except Exception as exc:
+                errors.append(f"{getattr(provider, 'name', 'provider')}: {exc}")
+                continue
+            if not results:
+                return ToolResult(content="No results found.")
+            lines = []
+            for i, r in enumerate(results, 1):
+                lines.append(
+                    f"{i}. {r.get('title', '')}\n   {r.get('url', '')}\n   {r.get('snippet', '')}"
+                )
+            return ToolResult(content="\n".join(lines))
+        return ToolResult(
+            content=f"Search failed: {'; '.join(errors)}", is_error=True
+        )

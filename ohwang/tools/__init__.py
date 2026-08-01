@@ -77,10 +77,14 @@ def default_tools(
     if search_provider is not None:
         registry.register(WebSearchTool(search_provider))
     else:
-        from ..services.search import make_search_provider
+        from ..services.search import BingSearch, DuckDuckGoSearch, make_search_provider
         sp = make_search_provider()
         if sp is not None:
-            registry.register(WebSearchTool(sp))
+            fallbacks = []
+            for candidate in (BingSearch(), DuckDuckGoSearch()):
+                if candidate.name != sp.name:
+                    fallbacks.append(candidate)
+            registry.register(WebSearchTool(sp, fallbacks))
 
     if todo_store is not None:
         from .todo import TodoWriteTool

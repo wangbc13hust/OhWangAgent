@@ -1,11 +1,25 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404（全绿）。
 
 ---
 
 ## 2026-08-01
+
+### 高强度办公场景第三轮：修复国内搜索不可达短板
+
+模拟"产品经理准备发布会"高强度一天（多源资料综合报告、长任务链错误恢复、并行多任务+记忆沉淀、跨会话记忆回归），全部通过。发现并修复核心短板：
+
+| 提交 | 内容 |
+| :--- | :--- |
+| — | **国内 web_search 不可达**：默认 provider 是 DDG（html.duckduckgo.com 被墙，国内必超时），办公"资料检索"核心能力失效。新增 **`BingSearch` provider**（`cn.bing.com/search`，无需 API key，国内可达，已验证 200/10 结果）；`make_search_provider` 默认改为 Tavily(有key)→**Bing**→DDG 回退 |
+| — | **WebSearchTool 回退链**：主 provider 抛 SearchError 时自动尝试备选（Bing↔DDG），全部失败才报错并汇总各 provider 原因；`default_tools` 组装 Bing 主 + DDG 备 |
+| — | 端到端验证：真实模型多轮搜索（中英关键词）、筛选相关结果、给出行业报告渠道建议；`Auto-saved 6 memory fact(s)` 记忆自动提取触发 |
+
+### 测试
+
+404 个测试全绿（本轮 +9：Bing 解析/HTTP错误/网络错误/空结果、make_search_provider 默认 Bing、WebSearchTool 回退/全失败汇总）。
 
 ### 流式输出全局优化
 
