@@ -45,7 +45,7 @@ class HookManager:
         if not path.is_file():
             return 0
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
         except Exception:
             return 0
         loaded = 0
@@ -98,8 +98,7 @@ class HookManager:
         for entry in self._cmds[_NOTIF]:
             self._run_cmd(entry["command"])
 
-    @staticmethod
-    def _run_cmd(command: str) -> tuple[int, str]:
+    def _run_cmd(self, command: str) -> tuple[int, str]:
         try:
             proc = subprocess.run(
                 command,
@@ -107,6 +106,7 @@ class HookManager:
                 capture_output=True,
                 text=True,
                 timeout=15,
+                cwd=str(self.workdir) if self.workdir is not None else None,
             )
             return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
         except Exception as exc:

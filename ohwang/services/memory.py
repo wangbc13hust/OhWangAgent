@@ -114,7 +114,7 @@ class MemoryStore:
         if self._facts_cache is not None and mtime == self._facts_mtime:
             return self._facts_cache
         try:
-            data = json.loads(self._facts_path.read_text(encoding="utf-8"))
+            data = json.loads(self._facts_path.read_text(encoding="utf-8-sig"))
         except Exception:
             data = {}
         self._facts_cache = data

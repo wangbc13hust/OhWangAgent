@@ -4,7 +4,7 @@ import os
 import subprocess
 
 from .base import BaseTool, ToolResult
-from .shell_output import command_result
+from .shell_output import command_result, decode_output
 
 
 class BashTool(BaseTool):
@@ -38,7 +38,6 @@ class BashTool(BaseTool):
                 command,
                 shell=True,
                 capture_output=True,
-                text=True,
                 timeout=timeout,
                 cwd=os.getcwd(),
             )
@@ -46,5 +45,7 @@ class BashTool(BaseTool):
             return command_result("", "", 0, timed_out=True, timeout=timeout)
 
         return command_result(
-            proc.stdout or "", proc.stderr or "", proc.returncode
+            decode_output(proc.stdout or b""),
+            decode_output(proc.stderr or b""),
+            proc.returncode,
         )

@@ -5,7 +5,7 @@ import shutil
 import subprocess
 
 from .base import BaseTool, ToolResult
-from .shell_output import command_result
+from .shell_output import command_result, decode_output
 
 
 class PowerShellTool(BaseTool):
@@ -49,7 +49,6 @@ class PowerShellTool(BaseTool):
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
-                text=True,
                 timeout=timeout,
                 cwd=os.getcwd(),
             )
@@ -57,5 +56,7 @@ class PowerShellTool(BaseTool):
             return command_result("", "", 0, timed_out=True, timeout=timeout)
 
         return command_result(
-            proc.stdout or "", proc.stderr or "", proc.returncode
+            decode_output(proc.stdout or b""),
+            decode_output(proc.stderr or b""),
+            proc.returncode,
         )

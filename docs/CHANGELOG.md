@@ -1,11 +1,45 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371（全绿，覆盖率 82% → 98%）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387（全绿）。
 
 ---
 
 ## 2026-08-01
+
+### 高强度真实使用评测 + 高优先级 bug 修复（真实 deepseek 模型端到端）
+
+以"办公白领的一天"为场景，用真实 `deepseek-v4-flash` 模型跑完整工作流（收件箱→回复邮件、季度汇报 PPT 大纲、营收数据分析、周会行动项、cron 定时提醒、会话保存/恢复），全链路打通。过程中发现并修复 6 个高优先级 bug：
+
+| 提交 | 内容 |
+| :--- | :--- |
+| — | **CLI 启动崩溃**：`main()` 解包 7 值但 `build_agent` 返回 8 个（skill 轮新增 `skill_loader` 后漏改），启动即 `ValueError`；已对齐 |
+| — | **`/help` 触发 rich MarkupError 崩溃**：help 文本含 `[/cron ...]` 方括号被 rich 当 markup 解析；render 层 `info`/`warn`/`tool_call`/`ask` 统一 `rich.markup.escape` 转义用户内容 |
+| — | **`/skills` 永远显示 disabled**：`skill_loader` 未传给 `repl`；已接线 |
+| — | **`/cron` 引号解析错误**：`split(maxsplit=2)` 拆坏含空格表达式；改用 `shlex.split` |
+| — | **hook 命令在错误目录执行**：`_run_cmd` 未传 `cwd`，副作用落到进程启动目录而非 workdir；已传 `cwd=workdir` |
+| — | **JSON 配置不兼容 UTF-8 BOM**：settings/flags/hooks/mcp/lsp/policy/session/facts/worktree/skill/plugin 全部读 `utf-8`，Windows 记事本/PowerShell 保存的 BOM 文件被静默忽略；统一改 `utf-8-sig` |
+
+### 办公场景评测补充修复
+
+| 提交 | 内容 |
+| :--- | :--- |
+| — | **bash/powershell 中文输出崩溃**：`text=True` 按 GBK 解码 UTF-8 字节抛 `UnicodeDecodeError`；新增 `decode_output()` 先 UTF-8 后 locale 容错回退 |
+| — | **非交互/管道场景权限问询崩溃**：stdin 为管道时 `Prompt.ask` 抛 `EOFError` 中断任务（实测回复草稿因此丢失）；捕获 EOFError 降级 deny/option-1 |
+| — | **`.env` 自动加载**：新增 `_load_env()`（workdir→项目根回退，不覆盖已有环境变量），`--provider deepseek` 开箱即用，无第三方依赖 |
+
+### 测试
+
+387 个测试全绿（本轮 +16：`.env` 加载、decode_output 容错、render EOF 降级、render markup 转义、hooks cwd/BOM、settings BOM）。
+
+### 真实办公场景验证记录（deepseek-v4-flash）
+
+- ✅ 客户邮件起草：读 2 封邮件 → 专业回复 → file_write 落盘 → todo 更新
+- ✅ 季度汇报 PPT 大纲：9 页结构化，融合周会纪要项目数据，带待填占位符
+- ✅ 营收数据分析：建 CSV → Python 计算 → 数字全部正确（总 583 万/月均 97.2/6 月最大）→ 业务洞察
+- ✅ 周会行动项：提炼 4 条（负责人/截止日），诚实标注推断部分
+- ✅ cron 调度：cron_create + cron_list 真实可用
+- ✅ 会话持久化：`/save` → `/resume` 完整闭环（2 条消息恢复）
 
 ### 全量单元测试补齐（覆盖率 82% → 98%）
 

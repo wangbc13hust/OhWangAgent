@@ -51,7 +51,7 @@ class FeatureFlags:
         path = self.workdir / ".ohwang" / "flags.json"
         if path.is_file():
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
+                data = json.loads(path.read_text(encoding="utf-8-sig"))
                 for k, v in data.get("features", {}).items():
                     if isinstance(v, bool):
                         self._overrides[k] = v

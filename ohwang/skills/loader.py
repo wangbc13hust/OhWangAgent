@@ -170,7 +170,7 @@ class SkillLoader:
         # legacy: <name>.json
         for f in sorted(path.glob("*.json")):
             try:
-                data = json.loads(f.read_text(encoding="utf-8"))
+                data = json.loads(f.read_text(encoding="utf-8-sig"))
             except Exception:
                 continue
             name = data.get("name", f.stem)

@@ -49,7 +49,7 @@ class WorktreeManager:
     def remove(self) -> tuple[bool, str]:
         if not self._state_file.is_file():
             return False, "No active worktree tracked in this session."
-        state = json.loads(self._state_file.read_text(encoding="utf-8"))
+        state = json.loads(self._state_file.read_text(encoding="utf-8-sig"))
         code, out, err = self._git("worktree", "remove", "--force", state["path"])
         if code != 0:
             return False, (out + err).strip() or "git worktree remove failed"

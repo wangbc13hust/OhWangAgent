@@ -17,7 +17,7 @@ class SessionStore:
         items: list[dict] = []
         for f in sorted(self.dir.glob("*.json"), key=os.path.getmtime, reverse=True):
             try:
-                data = json.loads(f.read_text(encoding="utf-8"))
+                data = json.loads(f.read_text(encoding="utf-8-sig"))
             except Exception:
                 continue
             items.append(
@@ -49,7 +49,7 @@ class SessionStore:
         if not path.exists():
             return None
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
         except Exception:
             return None
         return data.get("messages", [])

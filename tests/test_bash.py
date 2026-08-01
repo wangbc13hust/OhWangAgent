@@ -3,7 +3,21 @@ import sys
 import pytest
 
 from ohwang.tools.bash import BashTool
-from ohwang.tools.shell_output import command_result, truncate
+from ohwang.tools.shell_output import command_result, decode_output, truncate
+
+
+def test_decode_output_utf8():
+    assert decode_output("中文内容".encode("utf-8")) == "中文内容"
+
+
+def test_decode_output_invalid_bytes_fallback():
+    out = decode_output(b"\xff\xfe broken")
+    assert isinstance(out, str)
+    assert "broken" in out
+
+
+def test_decode_output_empty():
+    assert decode_output(b"") == ""
 
 
 def test_bash_executes_command():

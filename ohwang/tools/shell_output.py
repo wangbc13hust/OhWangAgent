@@ -1,6 +1,25 @@
 from __future__ import annotations
 
+import locale
+
 from .base import ToolResult
+
+
+def decode_output(data: bytes) -> str:
+    """Decode subprocess bytes to str, tolerant of encoding mismatch.
+
+    Tries UTF-8 first (Windows tools often emit UTF-8 while the console codepage
+    is GBK); on failure falls back to the locale encoding with replacement.
+    """
+    if not data:
+        return ""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            return data.decode(locale.getpreferredencoding(False), errors="replace")
+        except LookupError:
+            return data.decode("utf-8", errors="replace")
 
 
 def truncate(text: str, limit: int = 20000) -> str:

@@ -10,6 +10,20 @@ def test_load_settings_missing_file():
     assert result == {"allow": [], "ask": [], "deny": []}
 
 
+def test_load_settings_accepts_bom():
+    d = tempfile.mkdtemp()
+    ohwang_dir = os.path.join(d, ".ohwang")
+    os.makedirs(ohwang_dir, exist_ok=True)
+    payload = (
+        b"\xef\xbb\xbf"
+        + b'{"permissions": {"allow": ["file_read"], "ask": [], "deny": []}}'
+    )
+    with open(os.path.join(ohwang_dir, "settings.json"), "wb") as f:
+        f.write(payload)
+    result = load_settings(d)
+    assert "file_read" in result["allow"]
+
+
 def test_load_settings_with_file():
     d = tempfile.mkdtemp()
     ohwang_dir = os.path.join(d, ".ohwang")

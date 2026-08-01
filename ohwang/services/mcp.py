@@ -165,7 +165,7 @@ def load_mcp_tools(workdir: str, registry) -> list[str]:
     if not os.path.isfile(path):
         return []
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8-sig") as f:
             config = json.load(f)
     except Exception:
         return []

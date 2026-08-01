@@ -131,3 +131,32 @@ def test_unknown_event_rejected():
     hooks = HookManager()
     with pytest.raises(ValueError):
         hooks.register("bogus", lambda: None)
+
+
+def test_cmd_runs_in_workdir(tmp_path):
+    (tmp_path / ".ohwang").mkdir()
+    (tmp_path / ".ohwang" / "hooks.json").write_text(
+        json.dumps(
+            {
+                "notif": [{"command": "powershell -NoProfile -Command \"Set-Content -Path probe.txt -Value 'cwd-ok'\""}]
+            }
+        ),
+        encoding="utf-8",
+    )
+    hooks = HookManager(str(tmp_path))
+    hooks.load_json()
+    hooks.notify("go")
+    assert (tmp_path / "probe.txt").exists()
+    assert (tmp_path / "probe.txt").read_text(encoding="utf-8").strip() == "cwd-ok"
+
+
+def test_load_json_accepts_bom(tmp_path):
+    d = tmp_path / ".ohwang"
+    d.mkdir()
+    (d / "hooks.json").write_bytes(
+        b"\xef\xbb\xbf" + json.dumps(
+            {"post_tool_use": [{"command": "echo hi"}]}
+        ).encode("utf-8")
+    )
+    hooks = HookManager(str(tmp_path))
+    assert hooks.load_json() == 1

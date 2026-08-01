@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import sys
 from threading import Lock
 
@@ -26,6 +27,34 @@ from .services.settings import load_settings
 from .tools import default_tools
 from .tools.todo import TodoStore
 from .tui import Renderer, setup_utf8
+
+
+def _load_env(workdir: str) -> None:
+    """Load KEY=VALUE pairs from <workdir>/.env into os.environ (no override).
+
+    Also falls back to the package root's .env so keys remain available when
+    running with a --workdir that lacks its own .env file. Lightweight
+    replacement for python-dotenv: handles blank lines, comments, and optional
+    quotes; does not support variable expansion or multiline values.
+    """
+    candidates = [workdir, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))]
+    for base in candidates:
+        path = os.path.join(base, ".env")
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8-sig") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip().strip("'").strip('"')
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+        except OSError:
+            pass
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -350,7 +379,7 @@ def repl(
                     renderer.info(f"  {job.id}  {job.expression}  {job.prompt[:60]}")
             continue
         if line.startswith("/cron "):
-            parts = line[len("/cron "):].split(maxsplit=2)
+            parts = shlex.split(line[len("/cron "):])
             if len(parts) != 3:
                 renderer.info("Usage: /cron <id> '<cron expr>' '<prompt>'")
                 continue
@@ -413,7 +442,17 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     if args.workdir:
         os.chdir(args.workdir)
-    agent, renderer, config, session_store, scheduler, memory_extractor, flags = build_agent(args)
+    _load_env(os.getcwd())
+    (
+        agent,
+        renderer,
+        config,
+        session_store,
+        scheduler,
+        memory_extractor,
+        skill_loader,
+        flags,
+    ) = build_agent(args)
     run_lock = Lock()
     try:
         repl(
@@ -426,6 +465,7 @@ def main(argv=None) -> int:
             run_lock,
             one_shot=args.prompt,
             memory_extractor=memory_extractor,
+            skill_loader=skill_loader,
         )
     finally:
         scheduler.stop()

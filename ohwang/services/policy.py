@@ -28,7 +28,7 @@ class PolicyLimits:
         if not path.is_file():
             return cls()
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
         except Exception:
             return cls()
         return cls(

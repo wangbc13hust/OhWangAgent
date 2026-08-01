@@ -5,6 +5,7 @@ import os
 import sys
 
 from rich.console import Console
+from rich.markup import escape
 from rich.prompt import Prompt
 
 
@@ -42,9 +43,9 @@ class Renderer:
 
     def tool_call(self, tool_use: dict) -> None:
         self._flush()
-        args = json.dumps(tool_use.get("input", {}), ensure_ascii=False)
+        args = escape(json.dumps(tool_use.get("input", {}), ensure_ascii=False))
         self.console.print(
-            f"\n[bold yellow]>> {tool_use['name']}[/bold yellow] [dim]{args}[/dim]",
+            f"\n[bold yellow]>> {escape(tool_use['name'])}[/bold yellow] [dim]{args}[/dim]",
             highlight=False,
         )
 
@@ -59,38 +60,52 @@ class Renderer:
         self.console.print()
 
     def info(self, message: str) -> None:
-        self.console.print(f"[dim]{message}[/dim]", highlight=False)
+        self.console.print(f"[dim]{escape(message)}[/dim]", highlight=False)
 
     def warn(self, message: str) -> None:
-        self.console.print(f"[bold yellow]{message}[/bold yellow]", highlight=False)
+        self.console.print(f"[bold yellow]{escape(message)}[/bold yellow]", highlight=False)
 
     def ask(self, tool_name: str, input: dict) -> str:
         self._flush()
-        args = json.dumps(input, ensure_ascii=False)
+        args = escape(json.dumps(input, ensure_ascii=False))
         self.console.print(
-            f"\n[bold cyan]? {tool_name}[/bold cyan] [dim]{args}[/dim]",
+            f"\n[bold cyan]? {escape(tool_name)}[/bold cyan] [dim]{args}[/dim]",
             highlight=False,
         )
-        answer = Prompt.ask(
-            "[y]es / [n]o / a[lways]",
-            choices=["y", "n", "a"],
-            default="n",
-            console=self.console,
-        )
+        try:
+            answer = Prompt.ask(
+                "[y]es / [n]o / a[lways]",
+                choices=["y", "n", "a"],
+                default="n",
+                console=self.console,
+            )
+        except EOFError:
+            self.console.print(
+                "[dim]Non-interactive input: defaulting to deny.[/dim]"
+            )
+            return "deny"
         return {"y": "allow", "a": "always"}.get(answer, "deny")
 
     def ask_question(self, question: str, options: list) -> str:
         self._flush()
-        self.console.print(f"\n[bold cyan]? {question}[/bold cyan]", highlight=False)
+        self.console.print(
+            f"\n[bold cyan]? {escape(question)}[/bold cyan]", highlight=False
+        )
         for i, opt in enumerate(options, 1):
             label = opt.get("label", "") if isinstance(opt, dict) else str(opt)
             desc = opt.get("description", "") if isinstance(opt, dict) else ""
-            line = f"  [{i}] {label}"
+            line = f"  [{i}] {escape(label)}"
             if desc:
-                line += f" -- {desc}"
+                line += f" -- {escape(desc)}"
             self.console.print(line, highlight=False)
-        choice = Prompt.ask(
-            "Select option",
-            console=self.console,
-        )
+        try:
+            choice = Prompt.ask(
+                "Select option",
+                console=self.console,
+            )
+        except EOFError:
+            self.console.print(
+                "[dim]Non-interactive input: defaulting to option 1.[/dim]"
+            )
+            return "1"
         return choice.strip()
