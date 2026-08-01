@@ -47,10 +47,10 @@ search（DuckDuckGo/Tavily）、mcp、worktree、scheduler（cron）、browser�
 | PowerShell / Notebook | ✅ | ⚠️ 仅 PowerShell | P4 |
 | 上下文压缩 | ✅ | ✅ | — |
 | TodoWrite 任务追踪 | ✅ | ✅ | — |
-| **Task v2（Create/Get/Update/List/Stop/Output）** | ✅ | ❌ | P3 |
+| **Task v2（Create/Get/Update/List/Stop/Output）** | ✅ | ✅ | P3 |
 | 会话历史 / resume | ✅ | ✅ | — |
 | Plan 模式 | ✅ | ✅ | — |
-| **VerifyPlanExecutionTool** | ✅ | ❌ | P3 |
+| **VerifyPlanExecutionTool** | ✅ | ✅ | P3 |
 | WebFetch / WebSearch / Browser | ✅ | ✅ | — |
 | AskUserQuestion | ✅ | ✅ | — |
 | AgentTool 子 agent | ✅ | ✅ | — |
@@ -114,12 +114,12 @@ skill、plugin、lsp、memdir 记忆、feature flag、Textual TUI、powerShell�
 | 3C.3 | SleepTool | 主动模式下延时等待 | ✅ |
 | 3C.4 | SnipTool | 保存终端输出片段到 `.ohwang/snips/` | ✅ |
 
-### 📋 P3-D — 任务与协作增强
+### ✅ P3-D — 任务与协作增强
 
-| # | 任务 | 说明 |
-| :--- | :--- | :--- |
-| 3D.1 | Task v2（Create/Get/Update/List/Stop/Output） | 结构化任务对象替代纯 todo 列表 |
-| 3D.2 | VerifyPlanExecutionTool | 计划完成后校验执行结果 |
+| # | 任务 | 说明 | 状态 |
+| :--- | :--- | :--- | :---: |
+| 3D.1 | Task v2（Create/Get/Update/List/Stop/Output） | 结构化任务对象持久化 `.ohwang/tasks/`，带输出捕获 | ✅ |
+| 3D.2 | VerifyPlanExecutionTool | 计划执行后按步骤校验（done/partial/missed+evidence） | ✅ |
 
 ### 📋 P4 — 平台化（按需）
 
@@ -138,7 +138,7 @@ IDE bridge、Coordinator/swarm、OAuth、遥测分析、NotebookEdit、MCP resou
    ↓
 ✅ P3-C 输出展示工具（SyntheticOutput/Brief/Sleep/Snip）   （222 测试全绿）
    ↓
-📋 P3-D Task v2 → VerifyPlanExecution
+✅ P3-D Task v2 → VerifyPlanExecution   （TaskStore + 6 工具 + 校验）
    ↓
 📋 P4 平台化（按需）
 ```

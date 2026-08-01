@@ -1,11 +1,27 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432（全绿）。
 
 ---
 
 ## 2026-08-01
+
+### 功能补充：Task v2 + VerifyPlanExecution（P3-D 完成）
+
+补齐 ROADMAP P3-D 任务与协作增强，办公多任务管理能力：
+
+| 提交 | 内容 |
+| :--- | :--- |
+| — | **Task v2 结构化任务**：`TaskStore` 持久化到 `.ohwang/tasks/*.json`（id/标题/描述/状态/父任务/输出/时间戳）；6 个工具 `task_create`/`task_get`/`task_update`/`task_list`/`task_stop`/`task_output`，覆盖 Create/Get/Update/List/Stop/Output 全 CRUD；区别于扁平 todo 列表，任务带输出捕获与跨会话持久化 |
+| — | **VerifyPlanExecutionTool**：计划执行后按步骤校验（done/partial/missed + evidence），输出结构化校验报告；有 missed 步骤时标记 error，防止模型过早宣称成功 |
+| — | CLI 创建 `TaskStore` 并接入主 agent 与子 agent 工具链 |
+| — | 端到端验证：Task v2 完整工作流（创建3任务→更新→列表→完成+输出）落盘确认；VerifyPlan 两步计划校验 2/2 done |
+| — | workflow_scripts 评估后跳过（低价值，记为后续项） |
+
+### 测试
+
+432 个测试全绿（本轮 +12：TaskStore CRUD/持久化/状态过滤/非法状态忽略、task 工具链、verify_plan 各状态/空/模式）。
 
 ### 功能补充：SendUserFile / PromptSuggestion + 修复命令 BOM bug
 

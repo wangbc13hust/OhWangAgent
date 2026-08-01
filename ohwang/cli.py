@@ -25,6 +25,7 @@ from .services import (
 from .services.scheduler import Scheduler
 from .services.settings import load_settings
 from .tools import default_tools
+from .tools.tasks import TaskStore
 from .tools.todo import TodoStore
 from .tui import Renderer, read_stdin_line, setup_utf8
 
@@ -140,6 +141,7 @@ def build_agent(args: argparse.Namespace):
         deny=settings["deny"],
     )
     todo_store = TodoStore()
+    task_store = TaskStore(config.workdir)
     usage = UsageTracker()
     memory_store = MemoryStore(config.workdir)
     memory_extractor = (
@@ -185,6 +187,7 @@ def build_agent(args: argparse.Namespace):
                 permissions=permissions,
                 memory_store=memory_store,
                 skill_loader=skill_loader,
+                task_store=task_store,
             ),
             PermissionManager(mode=Mode.AUTO),
             config,
@@ -205,6 +208,7 @@ def build_agent(args: argparse.Namespace):
         iterations_getter=lambda: agent.iterations,
         memory_store=memory_store,
         skill_loader=skill_loader,
+        task_store=task_store,
     )
 
     if not args.no_mcp:
