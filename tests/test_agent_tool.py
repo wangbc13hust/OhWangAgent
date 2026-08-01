@@ -2,7 +2,7 @@ from ohwang.agent import Agent
 from ohwang.config import Config
 from ohwang.modes import Mode
 from ohwang.permissions import PermissionManager
-from ohwang.prompts import SYSTEM_PROMPT
+from ohwang.prompts import build_system_prompt
 from ohwang.providers.base import BaseProvider
 from ohwang.tools.agent_tool import AgentTool
 from ohwang.tools import default_tools
@@ -31,7 +31,7 @@ def test_agent_tool_spawns_sub_agent():
             permissions=perms,
             search_provider=None,
         )
-        return Agent(provider, tools, perms, config, SYSTEM_PROMPT)
+        return Agent(provider, tools, perms, config, build_system_prompt(config.workdir))
 
     tool = AgentTool(factory)
     r = tool.execute({

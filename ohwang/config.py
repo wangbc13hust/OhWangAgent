@@ -29,7 +29,7 @@ class Config:
     model: str = ""
     api_key: str = ""
     base_url: str = ""
-    max_tokens: int = 8192
+    max_tokens: int = 16384
     auto_approve: bool = False
     plan: bool = False
     compact_threshold: int = 100_000

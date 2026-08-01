@@ -6,7 +6,7 @@ from ohwang.agent import Agent
 from ohwang.config import Config
 from ohwang.modes import Mode
 from ohwang.permissions import PermissionManager
-from ohwang.prompts import SYSTEM_PROMPT
+from ohwang.prompts import build_system_prompt
 from ohwang.providers.base import BaseProvider
 from ohwang.services.compact import Compactor
 from ohwang.tools import default_tools
@@ -75,7 +75,7 @@ def build_agent(
         tools,
         perms,
         config,
-        SYSTEM_PROMPT,
+        build_system_prompt(config.workdir),
         todo_store=todo_store,
         compactor=compactor,
     )

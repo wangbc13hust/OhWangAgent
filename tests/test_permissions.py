@@ -39,3 +39,35 @@ def test_auto_approve_property_flips_mode():
     assert perms.mode is Mode.AUTO
     perms.auto_approve = False
     assert perms.mode is Mode.DEFAULT
+
+
+def test_allow_list_overrides_default():
+    perms = PermissionManager(mode=Mode.DEFAULT, allow=["bash"])
+    assert perms.can_run(_Tool("bash"), {"command": "rm -rf /"}) is True
+
+
+def test_deny_list_blocks_even_with_allow():
+    perms = PermissionManager(mode=Mode.DEFAULT, allow=["bash"], deny=["bash"])
+    assert perms.can_run(_Tool("bash"), {"command": "x"}) is False
+
+
+def test_ask_list_triggers_callback():
+    calls = []
+    perms = PermissionManager(
+        mode=Mode.DEFAULT,
+        ask=["bash"],
+        ask_callback=lambda n, i: calls.append(n) or "allow",
+    )
+    assert perms.can_run(_Tool("bash"), {"command": "x"}) is True
+    assert calls == ["bash"]
+
+
+def test_glob_patterns_match_tool_names():
+    perms = PermissionManager(mode=Mode.DEFAULT, allow=["mcp__*"])
+    assert perms.can_run(_Tool("mcp__files__read"), {"path": "x"}) is True
+    assert perms.can_run(_Tool("bash"), {"command": "x"}) is False
+
+
+def test_rules_priority_after_patterns():
+    perms = PermissionManager(mode=Mode.DEFAULT, deny=["*"], rules={"bash": "allow"})
+    assert perms.can_run(_Tool("bash"), {"command": "x"}) is False

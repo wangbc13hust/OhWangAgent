@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 
 from rich.console import Console
 from rich.prompt import Prompt
@@ -8,7 +10,8 @@ from rich.prompt import Prompt
 
 class Renderer:
     def __init__(self) -> None:
-        self.console = Console()
+        force_utf8 = sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8"
+        self.console = Console(force_terminal=True) if force_utf8 else Console()
         self._buffer: list[str] = []
 
     def _flush(self) -> None:
@@ -23,13 +26,13 @@ class Renderer:
         self._flush()
         args = json.dumps(tool_use.get("input", {}), ensure_ascii=False)
         self.console.print(
-            f"\n[bold yellow]◆ {tool_use['name']}[/bold yellow] [dim]{args}[/dim]",
+            f"\n[bold yellow]>> {tool_use['name']}[/bold yellow] [dim]{args}[/dim]",
             highlight=False,
         )
 
     def tool_result(self, name: str, is_error: bool) -> None:
         self._flush()
-        mark = "✗" if is_error else "✓"
+        mark = "FAIL" if is_error else "OK"
         color = "red" if is_error else "green"
         self.console.print(f"  [{color}]{mark} {name}[/{color}]", highlight=False)
 
@@ -59,7 +62,6 @@ class Renderer:
         return {"y": "allow", "a": "always"}.get(answer, "deny")
 
     def ask_question(self, question: str, options: list) -> str:
-        """Interactive question for AskUserQuestionTool."""
         self._flush()
         self.console.print(f"\n[bold cyan]? {question}[/bold cyan]", highlight=False)
         for i, opt in enumerate(options, 1):
@@ -67,7 +69,7 @@ class Renderer:
             desc = opt.get("description", "") if isinstance(opt, dict) else ""
             line = f"  [{i}] {label}"
             if desc:
-                line += f" — {desc}"
+                line += f" -- {desc}"
             self.console.print(line, highlight=False)
         choice = Prompt.ask(
             "Select option",

@@ -6,7 +6,7 @@ import tempfile
 from ohwang.agent import Agent
 from ohwang.config import Config
 from ohwang.permissions import PermissionManager
-from ohwang.prompts import SYSTEM_PROMPT
+from ohwang.prompts import build_system_prompt
 from ohwang.providers.base import BaseProvider
 from ohwang.tools import default_tools
 
@@ -44,7 +44,7 @@ def test_agent_loop():
     provider = MockProvider()
     tools = default_tools()
     permissions = PermissionManager(auto_approve=True)
-    agent = Agent(provider, tools, permissions, config, SYSTEM_PROMPT)
+    agent = Agent(provider, tools, permissions, config, build_system_prompt(workdir))
 
     events: list = []
     final = agent.run(

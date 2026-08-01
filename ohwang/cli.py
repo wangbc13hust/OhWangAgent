@@ -8,9 +8,10 @@ from .agent import Agent
 from .config import PROVIDER_PRESETS, Config
 from .modes import Mode
 from .permissions import PermissionManager
-from .prompts import SYSTEM_PROMPT
+from .prompts import build_system_prompt
 from .providers import create_provider
 from .services import Compactor, SessionStore
+from .services.settings import load_settings
 from .tools import default_tools
 from .tools.todo import TodoStore
 from .tui import Renderer
@@ -27,7 +28,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument(
         "--base-url", default=None, help="OpenAI-compatible endpoint (openai provider)"
     )
-    p.add_argument("--max-tokens", type=int, default=8192)
+    p.add_argument("--max-tokens", type=int, default=16384)
     p.add_argument(
         "-y",
         "--auto-approve",
@@ -84,8 +85,17 @@ def build_agent(args: argparse.Namespace):
     else:
         mode = Mode.DEFAULT
 
-    permissions = PermissionManager(mode=mode, ask_callback=renderer.ask)
+    settings = load_settings(config.workdir)
+    permissions = PermissionManager(
+        mode=mode,
+        ask_callback=renderer.ask,
+        allow=settings["allow"],
+        ask=settings["ask"],
+        deny=settings["deny"],
+    )
     todo_store = TodoStore()
+
+    system_prompt = build_system_prompt(config.workdir)
 
     def _agent_factory():
         return Agent(
@@ -93,7 +103,7 @@ def build_agent(args: argparse.Namespace):
             default_tools(todo_store=todo_store, permissions=permissions),
             PermissionManager(mode=Mode.AUTO),
             config,
-            SYSTEM_PROMPT,
+            system_prompt,
         )
 
     tools = default_tools(
@@ -117,7 +127,7 @@ def build_agent(args: argparse.Namespace):
         tools,
         permissions,
         config,
-        SYSTEM_PROMPT,
+        system_prompt,
         todo_store=todo_store,
         compactor=compactor,
     )
