@@ -1,0 +1,21 @@
+[project]
+name = "ohwang-agent"
+version = "0.1.0"
+description = "OhWangAgent — a Claude-Code-style coding agent in Python"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.40",
+    "openai>=1.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+ohwang = "ohwang.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ohwang*"]

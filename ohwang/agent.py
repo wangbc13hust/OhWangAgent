@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+from typing import Callable, Optional
+
+from .config import Config
+from .permissions import PermissionManager
+from .providers.base import BaseProvider
+from .tools.base import ToolResult
+from .tools.registry import ToolRegistry
+
+
+class Agent:
+    """The agentic loop: LLM -> tool_call -> execute -> feed back -> repeat."""
+
+    def __init__(
+        self,
+        provider: BaseProvider,
+        tools: ToolRegistry,
+        permissions: PermissionManager,
+        config: Config,
+        system: str,
+    ) -> None:
+        self.provider = provider
+        self.tools = tools
+        self.permissions = permissions
+        self.config = config
+        self.system = system
+        self.messages: list[dict] = []
+        self.iterations = 0
+
+    def reset(self) -> None:
+        self.messages.clear()
+        self.iterations = 0
+
+    def run(
+        self,
+        user_input: str,
+        on_text: Optional[Callable[[str], None]] = None,
+        on_tool_call: Optional[Callable[[dict], None]] = None,
+        on_tool_result: Optional[Callable[[str, bool], None]] = None,
+        max_iterations: int = 50,
+    ) -> str:
+        self.messages.append(
+            {"role": "user", "content": [{"type": "text", "text": user_input}]}
+        )
+
+        final_text = ""
+        for _ in range(max_iterations):
+            self.iterations += 1
+            text_parts: list[str] = []
+            tool_uses: list[dict] = []
+
+            for event in self.provider.chat(
+                system=self.system,
+                messages=self.messages,
+                tools=self.tools.specs(),
+                max_tokens=self.config.max_tokens,
+            ):
+                etype = event.get("type")
+                if etype == "text":
+                    text_parts.append(event["text"])
+                    if on_text:
+                        on_text(event["text"])
+                elif etype == "tool_use":
+                    tool_uses.append(event)
+
+            full_text = "".join(text_parts)
+            if full_text.strip():
+                final_text += full_text
+
+            assistant_blocks: list[dict] = []
+            if full_text.strip():
+                assistant_blocks.append({"type": "text", "text": full_text})
+            assistant_blocks.extend(
+                {
+                    "type": "tool_use",
+                    "id": tu["id"],
+                    "name": tu["name"],
+                    "input": tu.get("input", {}),
+                }
+                for tu in tool_uses
+            )
+            if assistant_blocks:
+                self.messages.append({"role": "assistant", "content": assistant_blocks})
+
+            if not tool_uses:
+                break
+
+            result_blocks: list[dict] = []
+            for tu in tool_uses:
+                if on_tool_call:
+                    on_tool_call(tu)
+                block = self._run_tool(tu)
+                if on_tool_result:
+                    on_tool_result(tu["name"], block.get("is_error", False))
+                result_blocks.append(block)
+            self.messages.append({"role": "user", "content": result_blocks})
+
+        return final_text
+
+    def _run_tool(self, tool_use: dict) -> dict:
+        name = tool_use["name"]
+        tool_id = tool_use["id"]
+        input_ = tool_use.get("input", {}) or {}
+
+        tool = self.tools.get(name)
+        if tool is None:
+            return {
+                "type": "tool_result",
+                "tool_use_id": tool_id,
+                "content": f"Unknown tool: {name}",
+                "is_error": True,
+            }
+
+        if not self.permissions.can_run(tool, input_):
+            return {
+                "type": "tool_result",
+                "tool_use_id": tool_id,
+                "content": "Permission denied by user.",
+                "is_error": True,
+            }
+
+        try:
+            result: ToolResult = tool.execute(input_)
+            return {
+                "type": "tool_result",
+                "tool_use_id": tool_id,
+                "content": result.content,
+                "is_error": result.is_error,
+            }
+        except Exception as exc:
+            return {
+                "type": "tool_result",
+                "tool_use_id": tool_id,
+                "content": f"Tool raised: {type(exc).__name__}: {exc}",
+                "is_error": True,
+            }
