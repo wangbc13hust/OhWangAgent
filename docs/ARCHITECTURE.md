@@ -1,6 +1,7 @@
 # OhWangAgent 架构文档
 
-> 版本：v0.3.0 · 对应代码提交 `630e5b0` · 464 测试全绿（覆盖率 98%）
+> 版本：v0.3.0 · 对应代码提交 `8775ee3` · 464 测试全绿
+> （覆盖率 91%，实测命令：`coverage run --source=ohwang -m pytest` + `coverage report --omit="ohwang/tui/widgets/*"`）
 >
 > 定位：交互式 CLI **办公 agent** —— 文档撰写、会议纪要、资料检索、任务管理、
 > 报告生成 + 软件工程能力。架构对齐 Claude Code（Agent 循环 + 工具注册表 +
@@ -12,17 +13,18 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  ohwang/cli.py        REPL + 一次性任务 + /命令 + cron + 记忆提取   │
+│  ohwang/cli.py        REPL + 一次性任务 + /命令 + cron + 记忆提取    │
+│                       + PromptSuggestion 启动建议 + .env 加载        │
 │  ohwang/tui/render.py Rich 流式渲染（UTF-8 控制台）                │
 ├─────────────────────────────────────────────────────────────────┤
 │  ohwang/agent.py      Agent 循环：LLM → tool_use → 执行 → 回灌      │
 ├─────────────────────────────────────────────────────────────────┤
-│  ohwang/providers/    统一事件流（text / tool_use）                │
+│  ohwang/providers/    统一事件流（text / tool_use）+ token 用量归账   │
 │    base.py → anthropic_provider → openai_provider(6 家兼容)       │
 ├─────────────────────────────────────────────────────────────────┤
-│  ohwang/tools/        BaseTool 注册表（约 31 个工具，按依赖启停）     │
+│  ohwang/tools/        BaseTool 注册表（约 39 个工具，按依赖启停）     │
 ├─────────────────────────────────────────────────────────────────┤
-│  ohwang/services/     横切服务：记忆/钩子/策略/调度/会话/压缩/…      │
+│  ohwang/services/     横切服务：记忆/钩子/策略/调度/会话/压缩/LSP/…  │
 ├─────────────────────────────────────────────────────────────────┤
 │  ohwang/permissions.py 权限四模式 + .ohwang/settings.json 规则      │
 │  ohwang/flags.py      Feature flag 三级覆盖                        │
@@ -36,12 +38,12 @@
 用户输入
   │
   ▼
-cli.main() ── build_agent() 装配 Agent/渲染器/服务
-  │
+cli.main() ── build_agent() 装配 Agent/渲染器/服务/TaskStore/调度器
+  │            （无历史时输出 _suggest_prompts() 规则式启动建议）
   ▼
 agent.run(prompt)
   │  ① 追加 user 消息 → ② 需要时上下文压缩
-  │  ③ provider.chat() 产出事件流（text / tool_use）
+  │  ③ provider.chat() 产出事件流（text / tool_use），流式归账 token
   │  ④ 收集 tool_use → 逐条 _run_tool()
   │        ├─ hooks.run_pre_tool   （可阻断/改写输入）
   │        ├─ permissions.can_run  （模式 + 规则）
@@ -61,7 +63,8 @@ cli._run_once() 收尾 → MemoryExtractor.maybe_extract() 自动记忆
 
 ```
 ohwang/
-├── cli.py                 入口：参数解析、装配、REPL、/命令、一次性任务
+├── cli.py                 入口：参数解析、装配、REPL、/命令、一次性任务、.env 加载、
+│                          PromptSuggestion、build_agent（run_lock 注入）
 ├── __main__.py            python -m ohwang 入口
 ├── agent.py               Agent 循环核心
 ├── config.py              PROVIDER_PRESETS + Config 数据类
@@ -71,7 +74,7 @@ ohwang/
 ├── prompts.py             System prompt 构建
 │
 ├── providers/             模型层
-│   ├── base.py            BaseProvider（事件流协议：text/tool_use）
+│   ├── base.py            BaseProvider（事件流协议 + usage_* 计数）
 │   ├── anthropic_provider.py  Anthropic 原生直连
 │   └── openai_provider.py     OpenAI 函数调用兼容（zhipu/deepseek/kimi/qwen/openai…）
 │
@@ -82,9 +85,14 @@ ohwang/
 │   ├── bash.py / powershell.py       Shell 执行（共用 shell_output.py）
 │   ├── shell_output.py               truncate / command_result 公共 helper
 │   ├── file_read.py / file_write.py / file_edit.py / grep.py / glob.py
+│   ├── file_diff.py       file_diff（纯预览）+ file_preview_edit（预览→审批→应用）
+│   ├── multi_edit.py      multi_edit（一次调用批量替换多文件，preview/apply 双模式）
 │   ├── web_fetch.py / web_search.py / web_browser.py   Web
 │   ├── tool_search.py     工具检索（把 registry 作为工具暴露）
-│   ├── todo.py            TodoWriteTool + TodoStore
+│   ├── todo.py            TodoWriteTool + TodoStore（扁平内存清单）
+│   ├── tasks.py           TaskStore + task_create/get/update/list/stop/output
+│   │                      （结构化任务，持久化 .ohwang/tasks/*.json）
+│   ├── verify_plan.py     VerifyPlanExecutionTool（计划执行按步校验）
 │   ├── plan_mode.py       enter/exit_plan_mode
 │   ├── ask_user.py        ask_user_question
 │   ├── agent_tool.py      子 agent（agent_factory）
@@ -92,25 +100,28 @@ ohwang/
 │   ├── worktree.py        enter/exit_worktree
 │   ├── config.py          config（运行时权限规则）
 │   ├── sleep.py / synthetic_output.py / brief.py / snip.py   P3-C 输出类
+│   ├── send_user_file.py  send_user_file（交付文件给用户，不进模型上下文）
 │   ├── memory.py          memory_read/write（经 default_tools(memory_store=...) 注册）
 │   └── lsp_diagnose.py    lsp_diagnose（经 load_lsp_tools() 注册，读取 .ohwang/lsp.json）
 │
 ├── services/             横切服务
 │   ├── compact.py         上下文压缩（token 阈值）
-│   ├── tokens.py          token 估算
+│   ├── tokens.py          token 估算（CJK 按 ~1 字符/token）
 │   ├── session.py         会话保存/resume（.ohwang/sessions/）
 │   ├── settings.py        权限规则文件读写
-│   ├── search.py          Bing / DuckDuckGo / Tavily 搜索（可回退）
+│   ├── search.py          Tavily → Bing(默认,国内可达) → DuckDuckGo 回退
 │   ├── mcp.py             MCP 客户端 + 工具封装
 │   ├── worktree.py        git worktree 管理
-│   ├── scheduler.py       cron 调度器（proactive 模式）
+│   ├── scheduler.py       cron 调度器（proactive 模式，state_file 持久化 .ohwang/cron.json）
 │   ├── browser.py         Playwright 浏览器会话
 │   ├── memory.py          MemoryStore + MemoryExtractor（自动记忆提取）
 │   ├── hooks.py           HookManager（pre/post/notif）
 │   ├── policy.py          PolicyLimits（调用上限）
-│   └── summary.py         UsageTracker（工具调用统计）
+│   ├── summary.py         UsageTracker（工具调用统计）
+│   └── lsp.py             LSPClient（stdio JSON-RPC，textDocument/diagnostic）
 │
 ├── skills/               Skill 加载器（.ohwang/skills/，SKILL.md 目录格式 + JSON 兼容）
+│   └── bundled/          内置 skill：debug / remember / simplify / verify
 ├── plugins/              Plugin 加载器（.ohwang/plugins/）
 └── tui/
     ├── render.py         Renderer（Rich）+ setup_utf8（Windows 控制台编码）
@@ -132,17 +143,22 @@ ohwang/
    - `tool_use` → 收集。
 4. 有 `tool_use` 则每条经 `_run_tool()` 执行（见下），结果组装为一条
    `user` 消息回灌；无 `tool_use` 即结束。
-5. `_run_tool()` 调用链：**hook(pre) → 权限 → policy → 执行 → 统计/后置钩子**。
+5. `_run_tool()` 调用链：**hook(pre) → 权限 → policy → 执行 → 统计/后置钩子**，
+   工具抛异常兜底为 `is_error` 结果块而非让循环崩溃。
 
 状态：`agent.messages`（会话历史）、`agent.iterations`、`agent.usage`。
+`_effective_system()` 在单 run 内缓存 system + todo + 记忆上下文。
 
 ### 3.2 Provider 层（`ohwang/providers/`）
 
 - `BaseProvider.chat(...)` 是唯一抽象接口，产出统一事件流字典
-  `{"type": "text"|"tool_use", ...}`。
-- `AnthropicProvider`：Anthropic 原生 tool_use 协议直通。
-- `OpenAIProvider`：把 tool_use 事件 ↔ OpenAI function-calling 转换，
-  因此任何 OpenAI 兼容端点（DeepSeek/Kimi/Qwen/智谱/本地模型）都可直接接入。
+  `{"type": "text"|"tool_use", ...}`；基类持有 `usage_prompt/completion/calls`
+  计数器与 `usage_report()`，供 `/summary` 展示。
+- `AnthropicProvider`：Anthropic 原生 tool_use 协议直通，从 `message_start`/
+  `message_delta` 归账 token。
+- `OpenAIProvider`：把 tool_use 事件 ↔ OpenAI function-calling 转换，流式增量按
+  index 累积，`stream_options.include_usage` 归账 token，因此任何 OpenAI 兼容
+  端点（DeepSeek/Kimi/Qwen/智谱/本地模型）都可直接接入。
 - 6 家预设见 `config.py::PROVIDER_PRESETS`（env 变量、默认模型、base_url）。
 
 ### 3.3 工具层（`ohwang/tools/`）
@@ -156,16 +172,29 @@ ohwang/
 | `input_schema` | JSON Schema |
 | `default_permission` | `allow` / `ask` / `deny` 缺省权限 |
 
-`default_tools(...)` 按依赖装配注册表：核心工具无条件注册，扩展工具
-（todo / plan_mode / ask_user / agent / cron / browser / web_search）
-仅在传入对应依赖时注册。`ToolSearchTool` 把注册表本身暴露为可搜索工具。
+`default_tools(...)` 按依赖装配注册表：**约 39 个工具**（含 browser 时 40）。
+核心与展示类工具无条件注册；todo / task / memory / skill / plan_mode / ask_user /
+agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册。
+`ToolSearchTool` 把注册表本身暴露为可搜索工具。
+
+**新增工具族（v0.3.0 后半段）：**
+
+| 工具 | 职责 | 默认权限 |
+| :--- | :--- | :--- |
+| `file_diff` | 纯预览 unified diff（difflib，无三方依赖） | allow |
+| `file_preview_edit` | 预览→审批→应用单文件编辑，仅显式 `apply=true` 写盘 | ask |
+| `multi_edit` | 一次调用批量替换多文件，preview/apply 双模式，歧义/缺失/空串安全跳过 | ask |
+| `task_create/get/update/list/stop/output` | Task v2 结构化任务 CRUD（区别于扁平 todo，带输出捕获与跨会话持久化） | allow |
+| `verify_plan_execution` | 计划执行后按步校验（done/partial/missed + evidence），有 missed 置 error | allow |
+| `send_user_file` | 交付文件给用户在终端展示，内容**不进模型上下文** | allow |
 
 ### 3.4 权限系统（`ohwang/permissions.py` + `modes.py`）
 
 - 四种模式：`DEFAULT`（按 default_permission + ask 回调）、`PLAN`（只读，
   仅 `allow` 工具通过）、`AUTO`（全部放行）、`BYPASS`（完全跳过）。
 - 规则（`.ohwang/settings.json`）：`allow/ask/deny` 三列表，支持 glob
-  （如 `mcp__*`），优先级 deny > allow > ask > 工具默认。
+  （如 `mcp__*`），优先级 **deny > allow > ask > 工具默认**，且 deny 优先于
+  always 记忆。
 - `always` 记忆：用户对某调用回答 "always" 后，按 `工具名::参数` 签名
   永久放行；退出 PLAN 模式自动还原进入前的模式。
 
@@ -180,25 +209,45 @@ ohwang/
 | `UsageTracker` | 工具调用统计（`/summary`、brief 工具） | 内存 |
 | `Compactor` | 超阈值上下文压缩 | — |
 | `SessionStore` | 会话保存/resume | `.ohwang/sessions/*.json` |
-| `Scheduler` | cron 调度，agent 空闲时可后台执行任务 | — |
+| `Scheduler` | cron 调度，agent 空闲时可后台执行任务；**state_file 持久化，重启不丢** | `.ohwang/cron.json` |
 | `MCPClient` | 外部 MCP 服务器工具 | `.ohwang/mcp.json` |
 | `SearchProvider` | Tavily(有key) → Bing(默认,国内可达) → DDG 回退；不可达抛 `SearchError` | — |
 | `WorktreeManager` | git worktree | — |
 | `BrowserSession` | Playwright 浏览器 | — |
+| `LSPClient` | stdio JSON-RPC 诊断（pyright/pylsp/TS…），`load_lsp_tools()` 按 `.ohwang/lsp.json` 注册 `lsp_diagnose` | `.ohwang/lsp.json` |
 
 ### 3.6 配置与开关
 
 - `config.py::Config`：provider/model/api_key/max_tokens/工作目录等，`resolve()`
   用环境变量补齐。
 - `flags.py::FeatureFlags`：三级覆盖 `OHWANG_FEATURE_<NAME>` env →
-  `.ohwang/flags.json` → 内置默认。控制 web_browser/proactive/memory 等。
+  `.ohwang/flags.json` → 内置默认。默认开启 web_fetch/web_search/web_browser/
+  ask_user/agent_tool/mcp/skill/memory/todo/plan_mode/session/worktree/
+  tool_search/proactive；默认关闭 lsp/plugin/coordinator/agent_swarms/
+  workflow_scripts。
 - `settings.py`：`.ohwang/settings.json` 权限规则读写（`config` 工具可运行时改）。
 
 ### 3.7 渲染与编码（`ohwang/tui/render.py`）
 
 - `Renderer` 基于 Rich：流式文本、工具调用高亮、ask 交互。
 - `setup_utf8()`：Windows 下 `SetConsoleOutputCP(65001)` + stdout/stderr
-  强制 UTF-8，解决 GBK 控制台中文乱码。
+  强制 UTF-8，解决 GBK 控制台中文乱码；管道输入 `read_stdin_line` 字节级
+  UTF-8/GBK 容错。
+
+### 3.8 CLI 装配（`ohwang/cli.py`）
+
+- `build_agent(args, run_lock)`：**`main` 传入唯一 `run_lock`**，REPL 前台与
+  cron 调度后台共用，避免并发 `run()` 污染 `messages`；`scheduler.start()` 在
+  `agent` 装配完成后才调用。
+- 装配顺序：Config.resolve → create_provider → Renderer → FeatureFlags →
+  PermissionManager（mode 由 `--plan`/`-y` 推导）→ TodoStore/TaskStore/Usage/
+  MemoryStore/MemoryExtractor → SkillLoader → system_prompt → Scheduler
+  （runner=`_run_locked`）→ `default_tools(...)` → MCP/LSP 扩展 → hooks/policy →
+  `agent = Agent(...)`。
+- 子 agent（`_agent_factory`）使用独立 AUTO `PermissionManager`，继承主 agent
+  的 policy/compactor/usage/hooks，防子 agent 篡改主权限状态。
+- `_suggest_prompts()`：无历史时基于 todo/文件/记忆/迭代数给 3 条规则式
+  启动建议（零 API 调用）。
 
 ---
 
@@ -210,8 +259,11 @@ ohwang/
 | `policy.json` | 工具调用上限 |
 | `hooks.json` | 生命周期命令钩子 |
 | `flags.json` | 特性开关覆盖 |
+| `cron.json` | 定时任务持久化（重启不丢） |
+| `lsp.json` | LSP 服务器配置（command/args/servers） |
 | `memory/facts.json` | 自动/手动记忆事实 |
 | `sessions/*.json` | 会话历史 |
+| `tasks/*.json` | Task v2 结构化任务对象（id/标题/描述/状态/父任务/输出/时间戳） |
 | `snips/*.txt` | snip 工具保存的输出片段 |
 | `skills/` | Skill 定义：`<name>/SKILL.md`（YAML frontmatter + markdown）或 `<name>.json` |
 | `mcp.json` | MCP 服务器列表 |
@@ -221,7 +273,7 @@ ohwang/
 ## 5. 扩展点
 
 - **加工具**：在 `ohwang/tools/` 新建 `BaseTool` 子类，并在 `default_tools()`
-  中注册（或按依赖条件注册）。
+  中注册（或按依赖条件注册，如 task/memory/skill 族）。
 - **加模型**：在 `PROVIDER_PRESETS` 增加预设；若 OpenAI 兼容则零代码接入，
   否则实现 `BaseProvider`。
 - **加服务**：在 `ohwang/services/` 新增模块，从 `services/__init__.py` 导出，
@@ -230,22 +282,25 @@ ohwang/
 
 ---
 
-## 6. 测试架构（`tests/`，464 个，覆盖率 98%）
+## 6. 测试架构（`tests/`，46 个文件 / 464 个用例，覆盖率 91%）
 
 - `helpers.py`：`ScriptedProvider`（重放事件序列）、`MockSearchProvider`、
   `build_agent()`——无网络、无真实模型的集成测试基座。
 - 并发/接线约定：`cli.build_agent(args, run_lock)` 由 `main` 传入唯一锁，
-  REPL 前台与 cron 调度后台共用，避免并发 run 同一 Agent；`scheduler.start()`
-  在 `agent` 装配完成后才调用。子 agent 使用独立 AUTO `PermissionManager`
-  并继承主 agent 的 policy/compactor/usage/hooks。
-- 覆盖：工具单元测试、provider 转换、权限/plan 模式、压缩、会话、
-  记忆/记忆提取、hooks/policy/usage、调度、worktree、MCP、Skill/Plugin、
-  办公场景（`test_scenarios.py`）、P3 新工具（`test_output_tools.py` 等）。
-- 覆盖率 98%（`coverage report --omit="ohwang/tui/widgets/*"`）；按模块补齐：
+  REPL 前台与 cron 调度后台共用；`scheduler.start()` 在 `agent` 装配完成后才调用。
+  子 agent 使用独立 AUTO `PermissionManager` 并继承主 agent 的
+  policy/compactor/usage/hooks。
+- 覆盖：工具单元测试、provider 转换、权限/plan 模式、压缩、会话、记忆/记忆提取、
+  hooks/policy/usage、调度、worktree、MCP、Skill/Plugin、办公场景
+  （`test_scenarios.py`）、P3 新工具、以及本轮新增：`test_file_diff.py`、
+  `test_multi_edit.py`、`test_send_user_file.py`、`test_tasks.py`、
+  `test_verify_plan.py`、`test_tui.py`。
+- 覆盖率 91%（`coverage run --source=ohwang -m pytest` 后
+  `coverage report --omit="ohwang/tui/widgets/*"` 实测；按模块补齐：
   `test_providers.py`、`test_mcp.py`、`test_browser.py`、`test_lsp.py`、
-  `test_hooks.py`、`test_search.py`、`test_plugin.py`、`test_gaps.py`（分支补齐）。
+  `test_hooks.py`、`test_search.py`、`test_plugin.py`、`test_gaps.py`（分支补齐））。
 - MCP 用真实 stdio fake server 子进程测 JSON-RPC 握手；Playwright 用 mock
-  `playwright` + `playwright.sync_api` 模块。
+  `playwright` + `playwright.sync_api` 模块；LSP 用子进程 + 桩响应。
 - 流式：`Renderer.stream_text` 即时输出 + 智能 flush（128字符/50ms/句子结束）；
   管道输入 `read_stdin_line` 字节级 UTF-8/GBK 容错。
 - token 优化：`Agent._effective_system()`/`ToolRegistry.specs()` 单 run 内缓存，
@@ -258,11 +313,16 @@ ohwang/
 
 - memory 工具（`memory_read/write`）已接线：`default_tools(memory_store=...)` 注册，
   且 `Agent._effective_system()` 注入项目记忆上下文（CLAUDE.md/AGENTS.md + facts）。
-- lsp_diagnose 已接线：cli 在 `lsp` 特性开启时经 `load_lsp_tools()` 读取 `.ohwang/lsp.json`
-  注册工具；特性默认关闭（`flags.py` 默认 `lsp: False`）。
-- Skill 系统已接线：`default_tools(skill_loader=...)` 注册 `skill` 工具，`build_system_prompt`
-  将 `describe_all()` 注入 system prompt，agent 依据描述自动决定何时调用；用户自定义
-  skill 支持 `<name>/SKILL.md`（YAML frontmatter + markdown）与 `<name>.json` 两种格式。
+- lsp_diagnose 已接线：cli 在 `lsp` 特性开启时经 `load_lsp_tools()` 读取
+  `.ohwang/lsp.json` 注册工具；特性默认关闭（`flags.py` 默认 `lsp: False`）。
+- Skill 系统已接线：`default_tools(skill_loader=...)` 注册 `skill` 工具，
+  `build_system_prompt` 将 `describe_all()` 注入 system prompt；支持
+  `<name>/SKILL.md`（YAML frontmatter + markdown）与 `<name>.json` 两种格式，
+  内置 debug/remember/simplify/verify 四个 bundled skill。
 - Textual TUI（`tui/widgets/app.py`）为实验性，正式入口仍用 Rich REPL。
-- 路线图 P3-D（Task v2 / VerifyPlanExecution）与 P4（平台化）待实现，
-  详见 `docs/ROADMAP.md`。
+- `cli.build_agent` 中 `_agent_factory`/`_run_locked` 存在闭包前向引用
+  （引用后文才定义的 `agent`/`compactor`/`hooks`/`policy`），靠晚绑定可运行，
+  但重排装配顺序会引入启动期风险（见 `docs/PROJECT_REVIEW.md` §3.1，建议显式注入）。
+- 主/子 agent 共享 Provider 对象，Provider 级 token 统计会混入（见评审 §3.2）。
+- 路线图 P4（平台化：IDE bridge / swarm / OAuth / 遥测 / remote-server /
+  NotebookEdit / 命令历史补全）待实现，详见 `docs/ROADMAP.md`。

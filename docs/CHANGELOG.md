@@ -7,6 +7,20 @@
 
 ## 2026-08-01
 
+### 文档：ARCHITECTURE 全量同步至 `8775ee3`
+
+重写 `docs/ARCHITECTURE.md`，使其反映当前源码（评审后 HEAD）。要点：
+
+- **新增工具族**：`file_diff`/`file_preview_edit`（diff 预览→审批）、`multi_edit`
+  （批量多文件替换）、`task_*` 6 工具 + `TaskStore`（Task v2）、
+  `verify_plan_execution`、`send_user_file`；工具总数更新为约 39（含 browser 40）。
+- **新增服务**：`services/lsp.py`（LSPClient + load_lsp_tools）；`Scheduler` 标注
+  state_file 持久化（`.ohwang/cron.json`）；Provider 层补 token 用量归账说明。
+- **数据目录**：补 `cron.json` / `lsp.json` / `tasks/*.json` / bundled skills。
+- **修正数字**：覆盖率声明 98% → 91%（附实测命令）；测试 46 文件 / 464 用例；
+  目录结构补全新增模块与 CLI 装配（run_lock、PromptSuggestion、.env 加载）。
+- **已知缺口**：新增 build_agent 闭包前向引用、主/子共享 Provider 两项（转自评审）。
+
 ### 新增：项目评审报告
 
 基于源码通读 + 全量测试复跑（464 全绿）+ 覆盖率实测 + 文档一致性核查，产出
