@@ -44,6 +44,8 @@ def default_tools(
     from .file_edit import FileEditTool
     from .file_read import FileReadTool
     from .file_write import FileWriteTool
+    from .file_diff import FileDiffTool, FilePreviewEditTool
+    from .multi_edit import MultiEditTool
     from .glob import GlobTool
     from .grep import GrepTool
     from .powershell import PowerShellTool
@@ -79,6 +81,9 @@ def default_tools(
     registry.register(SnipTool(workdir or os.getcwd()))
     registry.register(SendUserFileTool(display_callback))
     registry.register(VerifyPlanExecutionTool())
+    registry.register(FileDiffTool())
+    registry.register(FilePreviewEditTool())
+    registry.register(MultiEditTool())
 
     if search_provider is not None:
         registry.register(WebSearchTool(search_provider))

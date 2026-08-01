@@ -51,6 +51,7 @@ search（DuckDuckGo/Tavily）、mcp、worktree、scheduler（cron）、browser�
 | 会话历史 / resume | ✅ | ✅ | — |
 | Plan 模式 | ✅ | ✅ | — |
 | **VerifyPlanExecutionTool** | ✅ | ✅ | P3 |
+| **MultiEdit / Diff 预览** | ✅ | ✅ | P3 |
 | WebFetch / WebSearch / Browser | ✅ | ✅ | — |
 | AskUserQuestion | ✅ | ✅ | — |
 | AgentTool 子 agent | ✅ | ✅ | — |
@@ -144,3 +145,34 @@ IDE bridge、Coordinator/swarm、OAuth、遥测分析、NotebookEdit、MCP resou
 ```
 
 每批完成后跑 `tests/` 回归 + 真实模型端到端验证，再进入下一批。
+
+---
+
+## 5. Claude Code 系统对比（2026-08 逐模块核对）
+
+> 对照 Claude Code（v2.1.88 能力域）逐项核对 OhWangAgent，排除早期误判项后的真实差距。
+
+### ✅ 已对齐（核对确认非缺失）
+
+CLAUDE.md 分级上下文、权限四模式+参数级规则、budget 配额、会话历史/resume、子 agent、并发/并行、Git 集成、MCP 客户端(tool 级)、审批/人工介入交互。
+
+### 🔴 已补齐（本次实现）
+
+| 模块 | 实现 |
+| :--- | :--- |
+| **MultiEdit 多文件编辑** | `multi_edit` 工具，一次调用批量替换多文件，preview/apply 双模式 |
+| **Diff 查看/应用** | `file_diff`（纯预览）+ `file_preview_edit`（预览→审批→应用），防误改 |
+| **定时任务持久化** | `Scheduler` 支持 `state_file`，cron 存 `.ohwang/cron.json`，重启不丢 |
+
+### 🟡 待补（办公价值排序）
+
+| 模块 | 说明 | 优先级 |
+| :--- | :--- | :---: |
+| Notebook 编辑/执行 | 数据分析场景结构化 | P3 |
+| 命令历史/补全 | REPL `/` 命令历史 + tab 补全 | P3 |
+| 主题/UI 定制 | TUI 配色主题配置 | P4 |
+| 本地用量分析 | 遥测/用量持久聚合报表 | P4 |
+
+### ⚪ 平台化（P4 已知项，按需）
+
+MCP resource/prompt/sampling、沙箱/网络控制、插件市场/slash commands、子代理独立模型配置、IDE bridge、OAuth、remote/server。

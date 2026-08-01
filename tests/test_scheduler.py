@@ -95,3 +95,51 @@ def test_scheduler_stop_without_start_is_safe():
     s = Scheduler()
     s.stop()
     assert s._thread is None
+
+
+def test_scheduler_persists_jobs(tmp_path):
+    state = tmp_path / "cron.json"
+    s1 = Scheduler(state_file=state)
+    assert s1.add("daily", "0 9 * * 1", "run report")
+    assert s1.add("weekly", "0 10 * * 5", "send summary")
+    s2 = Scheduler(state_file=state)
+    assert s2.count() == 2
+    ids = {j.id for j in s2.list()}
+    assert ids == {"daily", "weekly"}
+
+
+def test_scheduler_persists_last_run(tmp_path):
+    state = tmp_path / "cron.json"
+    s1 = Scheduler(state_file=state)
+    s1.add("job", "* * * * *", "x")
+    s1.list()[0].last_run = 12345.0
+    s1._save()
+    s2 = Scheduler(state_file=state)
+    assert s2.list()[0].last_run == 12345.0
+
+
+def test_scheduler_remove_persists(tmp_path):
+    state = tmp_path / "cron.json"
+    s1 = Scheduler(state_file=state)
+    s1.add("keep", "* * * * *", "a")
+    s1.add("drop", "* * * * *", "b")
+    s1.remove("drop")
+    s2 = Scheduler(state_file=state)
+    assert {j.id for j in s2.list()} == {"keep"}
+
+
+def test_scheduler_loads_bad_state_safely(tmp_path):
+    state = tmp_path / "cron.json"
+    state.write_text("{bad json", encoding="utf-8")
+    s = Scheduler(state_file=state)
+    assert s.count() == 0
+
+
+def test_scheduler_loads_bom_state(tmp_path):
+    state = tmp_path / "cron.json"
+    import json
+    payload = json.dumps({"jobs": [{"id": "j", "expression": "* * * * *", "prompt": "p"}]})
+    state.write_bytes(b"\xef\xbb\xbf" + payload.encode("utf-8"))
+    s = Scheduler(state_file=state)
+    assert s.count() == 1
+    assert s.list()[0].id == "j"

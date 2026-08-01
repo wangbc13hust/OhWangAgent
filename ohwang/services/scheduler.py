@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Optional
 
 _RUNNER = Callable[[str], str]
@@ -14,6 +16,23 @@ class CronJob:
     expression: str
     prompt: str
     last_run: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "expression": self.expression,
+            "prompt": self.prompt,
+            "last_run": self.last_run,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CronJob":
+        return cls(
+            id=data.get("id", ""),
+            expression=data.get("expression", ""),
+            prompt=data.get("prompt", ""),
+            last_run=data.get("last_run", 0.0),
+        )
 
 
 def _field(spec: str, lo: int, hi: int) -> set[int]:
@@ -58,12 +77,46 @@ class Scheduler:
     on `stop()`.
     """
 
-    def __init__(self, runner: Optional[_RUNNER] = None) -> None:
+    def __init__(
+        self,
+        runner: Optional[_RUNNER] = None,
+        state_file: str | Path | None = None,
+    ) -> None:
         self._runner = runner
+        self._state_file = Path(state_file) if state_file else None
         self._jobs: dict[str, CronJob] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        if self._state_file is not None:
+            self._load()
+
+    def _load(self) -> None:
+        if self._state_file is None or not self._state_file.is_file():
+            return
+        try:
+            data = json.loads(self._state_file.read_text(encoding="utf-8-sig"))
+        except Exception:
+            return
+        jobs = data.get("jobs", []) if isinstance(data, dict) else data
+        for entry in jobs:
+            if not isinstance(entry, dict):
+                continue
+            job = CronJob.from_dict(entry)
+            if job.id and self._valid_expression(job.expression):
+                self._jobs[job.id] = job
+
+    def _save(self) -> None:
+        if self._state_file is None:
+            return
+        try:
+            self._state_file.parent.mkdir(parents=True, exist_ok=True)
+            payload = {"jobs": [j.to_dict() for j in self._jobs.values()]}
+            self._state_file.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except OSError:
+            pass
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -108,11 +161,15 @@ class Scheduler:
             if job_id in self._jobs:
                 return False
             self._jobs[job_id] = CronJob(id=job_id, expression=expression, prompt=prompt)
+        self._save()
         return True
 
     def remove(self, job_id: str) -> bool:
         with self._lock:
-            return self._jobs.pop(job_id, None) is not None
+            removed = self._jobs.pop(job_id, None) is not None
+        if removed:
+            self._save()
+        return removed
 
     def list(self) -> list[CronJob]:
         with self._lock:

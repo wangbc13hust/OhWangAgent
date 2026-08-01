@@ -1,11 +1,27 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450（全绿）。
 
 ---
 
 ## 2026-08-01
+
+### Claude Code 对比补齐：MultiEdit / Diff 审批 / Cron 持久化
+
+按 Claude Code 系统对比（已写入 ROADMAP 第 5 节）补齐第一梯队缺失模块：
+
+| 提交 | 内容 |
+| :--- | :--- |
+| — | **MultiEdit 多文件编辑**：`multi_edit` 工具一次调用批量替换多文件，preview/apply 双模式，歧义/缺失/空 old_string 安全跳过 |
+| — | **Diff 查看/应用**：`file_diff`（纯预览）+ `file_preview_edit`（预览→审批→应用，默认 ask 权限）；unified diff 用标准库 difflib，无第三方依赖 |
+| — | **定时任务持久化**：`Scheduler` 增 `state_file`，cron 存 `.ohwang/cron.json`（utf-8-sig 加载/写保存），add/remove 即时落盘，重启不丢 |
+| — | **系统对比**：ROADMAP 新增"Claude Code 系统对比"章节（已对齐/已补齐/待补/平台化四类），排除早期误判项 |
+| — | 端到端验证：cron 重启保留；file_preview_edit 预览 diff 防截断（agent 主动发现风险）；multi_edit 预览发现字面替换会误伤已有词 |
+
+### 测试
+
+450 个测试全绿（本轮 +18：cron 持久化/BOM/坏状态/remove 持久化、file_diff 预览/无差异、preview_edit 默认不写/apply、multi_edit 预览/应用/跳过/歧义/replace_all）。
 
 ### 功能补充：Task v2 + VerifyPlanExecution（P3-D 完成）
 

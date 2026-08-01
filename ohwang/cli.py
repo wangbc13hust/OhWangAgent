@@ -159,7 +159,9 @@ def build_agent(args: argparse.Namespace):
     )
 
     run_lock = Lock()
-    scheduler = Scheduler(runner=None)
+    scheduler = Scheduler(
+        runner=None, state_file=os.path.join(config.workdir, ".ohwang", "cron.json")
+    )
 
     def _run_locked(prompt: str) -> str:
         with run_lock:
