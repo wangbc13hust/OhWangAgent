@@ -29,6 +29,15 @@ _DEFAULTS = {
     "proactive": True,
 }
 
+_TRUTHY_ENV_VALUES = ("1", "true", "yes")
+
+
+def _env_truthy(value: str) -> bool:
+    # Values from .env / os.environ may carry whitespace or any casing
+    # (TRUE, True, YES); treat them consistently instead of silently
+    # disabling a feature on an uppercase value.
+    return value.strip().lower() in _TRUTHY_ENV_VALUES
+
 
 class FeatureFlags:
     """Feature flag system driven by environment variables + .ohwang/flags.json.
@@ -62,7 +71,7 @@ class FeatureFlags:
         env_key = f"OHWANG_FEATURE_{name.upper()}"
         env_val = os.environ.get(env_key)
         if env_val is not None:
-            return env_val in ("1", "true", "yes")
+            return _env_truthy(env_val)
 
         self._ensure_loaded()
         if name in self._overrides:
@@ -88,7 +97,7 @@ class FeatureFlags:
             env_key = f"OHWANG_FEATURE_{name.upper()}"
             env_val = os.environ.get(env_key)
             if env_val is not None:
-                result[name] = env_val in ("1", "true", "yes")
+                result[name] = _env_truthy(env_val)
         return result
 
     def _save(self) -> None:

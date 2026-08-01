@@ -70,3 +70,24 @@ def test_flags_unknown_default_false():
     d = tempfile.mkdtemp()
     flags = FeatureFlags(d)
     assert flags.is_enabled("totally_unknown_feature") is False
+
+
+def test_flags_env_value_case_insensitive(monkeypatch):
+    # .env files commonly use uppercase truthy values (TRUE/True/YES); they must
+    # not silently disable the feature.
+    d = tempfile.mkdtemp()
+    flags = FeatureFlags(d)
+    for value in ("TRUE", "True", "YES", " 1 "):
+        monkeypatch.setenv("OHWANG_FEATURE_LSP", value)
+        assert flags.is_enabled("lsp") is True
+    monkeypatch.setenv("OHWANG_FEATURE_LSP", "FALSE")
+    assert flags.is_enabled("lsp") is False
+
+
+def test_flags_list_all_reflects_env_value_case(monkeypatch):
+    d = tempfile.mkdtemp()
+    flags = FeatureFlags(d)
+    monkeypatch.setenv("OHWANG_FEATURE_WEB_SEARCH", "TRUE")
+    assert flags.list_all()["web_search"] is True
+    monkeypatch.setenv("OHWANG_FEATURE_WEB_SEARCH", "No")
+    assert flags.list_all()["web_search"] is False
