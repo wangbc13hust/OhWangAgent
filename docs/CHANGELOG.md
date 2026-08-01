@@ -7,6 +7,19 @@
 
 ## 2026-08-01
 
+### 新增：项目评审报告
+
+基于源码通读 + 全量测试复跑（464 全绿）+ 覆盖率实测 + 文档一致性核查，产出
+`docs/PROJECT_REVIEW.md`。总体评分 4.5/5。要点：
+
+- **优点**：架构分层干净、测试/源码比 >1、ScriptedProvider 无网络测试基座、
+  权限/安全细节（SSRF 拒绝、deny 优先、.env 未入库）到位。
+- **发现的不一致**：`pyproject.toml` 版本 v0.2.0 与文档 v0.3.0 漂移；README
+  （222 测试）与 ROADMAP（222 测试/88 文件）过期，实际 464 测试/70 源码文件；
+  文档声称覆盖率 98%，实测 91%（`coverage run --source=ohwang --omit=tui/widgets/*`）。
+- **建议**：重构 `cli.build_agent` 中 `_agent_factory`/`_run_locked` 闭包前向引用
+  为显式注入；补 build_agent 装配冒烟测试；公开前轮换 `.env` 中的 key。
+
 ### 代码审查修复批次：并发锁 / 权限安全 / 健壮性
 
 全量通读 `ohwang/` 60+ 文件后的审查修复，分三个提交落地（`4fc16c9` `ed10401` `630e5b0`）：
