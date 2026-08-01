@@ -31,7 +31,12 @@ class SessionStore:
         return items
 
     def save(self, messages: list[dict], preview: str = "") -> str:
-        sid = time.strftime("%Y%m%d-%H%M%S")
+        base = time.strftime("%Y%m%d-%H%M%S")
+        sid = base
+        n = 0
+        while (self.dir / f"{sid}.json").exists():
+            n += 1
+            sid = f"{base}-{n}"
         path = self.dir / f"{sid}.json"
         data = {"mtime": time.time(), "preview": preview, "messages": messages}
         path.write_text(

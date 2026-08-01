@@ -105,3 +105,27 @@ def test_memory_persistence():
     store1.add_fact("persist", "this survives restart")
     store2 = MemoryStore(d)
     assert store2.get_fact("persist") == "this survives restart"
+
+
+def test_memory_facts_cache_invalidated_on_write():
+    d = tempfile.mkdtemp()
+    store = MemoryStore(d)
+    store.add_fact("k1", "v1")
+    assert "k1" in store.render_context()
+    store.add_fact("k2", "v2")
+    ctx = store.render_context()
+    assert "k2" in ctx and "v2" in ctx
+
+
+def test_memory_facts_cache_matches_mtime():
+    import time
+
+    d = tempfile.mkdtemp()
+    store = MemoryStore(d)
+    store.add_fact("k1", "v1")
+    first = store._load_facts()
+    assert store._load_facts() is first
+    time.sleep(0.01)
+    store.add_fact("k2", "v2")
+    second = store._load_facts()
+    assert "k2" in second

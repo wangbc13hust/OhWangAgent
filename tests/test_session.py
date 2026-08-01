@@ -28,6 +28,16 @@ def test_load_missing_returns_none():
     assert s.load("nope") is None
 
 
+def test_save_ids_unique_per_second():
+    d = tempfile.mkdtemp()
+    s = SessionStore(d)
+    sid1 = s.save([{"role": "user", "content": [{"type": "text", "text": "a"}]}], preview="a")
+    sid2 = s.save([{"role": "user", "content": [{"type": "text", "text": "b"}]}], preview="b")
+    assert sid1 != sid2
+    items = s.list()
+    assert len(items) == 2
+
+
 def test_resume_restores_messages_into_agent():
     from tests.helpers import build_agent
 

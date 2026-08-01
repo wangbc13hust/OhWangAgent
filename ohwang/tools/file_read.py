@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import os
 
 from .base import BaseTool, ToolResult
@@ -36,17 +37,20 @@ class FileReadTool(BaseTool):
         if not os.path.isfile(path):
             return ToolResult(content=f"File not found: {path}", is_error=True)
 
+        start = (offset - 1) if offset and offset > 0 else 0
+        end = (start + limit) if limit else None
+
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
+                if end is None:
+                    selected = itertools.islice(f, start, None)
+                else:
+                    selected = itertools.islice(f, start, end)
+                lines = list(selected)
         except OSError as exc:
             return ToolResult(content=f"Cannot read file: {exc}", is_error=True)
 
-        start = (offset - 1) if offset and offset > 0 else 0
-        end = (start + limit) if limit else len(lines)
-        selected = lines[start:end]
-
         numbered = "".join(
-            f"{start + i + 1}: {line}" for i, line in enumerate(selected)
+            f"{start + i + 1}: {line}" for i, line in enumerate(lines)
         )
         return ToolResult(content=numbered or "(empty file)")

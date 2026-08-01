@@ -9,6 +9,7 @@ from .scheduler import CronJob, Scheduler, cron_matches
 from .browser import BrowserSession
 from .memory import MemoryExtractor, MemoryStore
 from .hooks import HookManager
+from .lsp import LSPClient, load_lsp_tools
 from .summary import UsageTracker
 from .policy import PolicyLimits
 
@@ -35,6 +36,8 @@ __all__ = [
     "MemoryExtractor",
     "MemoryStore",
     "HookManager",
+    "LSPClient",
+    "load_lsp_tools",
     "UsageTracker",
     "PolicyLimits",
 ]

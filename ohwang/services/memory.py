@@ -27,6 +27,11 @@ class MemoryStore:
         self.workdir = Path(workdir)
         self.memory_dir = self.workdir / ".ohwang" / "memory"
         self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self._facts_path = self.memory_dir / "facts.json"
+        self._facts_cache: dict | None = None
+        self._facts_mtime: float | None = None
+        self._ctx_cache: str | None = None
+        self._ctx_sig: tuple | None = None
 
     def load_project_context(self) -> str:
         """Load CLAUDE.md / AGENTS.md from project root as context string."""
@@ -98,19 +103,30 @@ class MemoryStore:
         return "\n".join(parts)
 
     def _load_facts(self) -> dict:
-        path = self.memory_dir / "facts.json"
-        if not path.is_file():
+        if not self._facts_path.is_file():
+            self._facts_cache = {}
+            self._facts_mtime = None
             return {}
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            mtime = self._facts_path.stat().st_mtime
+        except OSError:
+            return self._facts_cache or {}
+        if self._facts_cache is not None and mtime == self._facts_mtime:
+            return self._facts_cache
+        try:
+            data = json.loads(self._facts_path.read_text(encoding="utf-8"))
         except Exception:
-            return {}
+            data = {}
+        self._facts_cache = data
+        self._facts_mtime = mtime
+        return data
 
     def _save_facts(self, facts: dict) -> None:
-        path = self.memory_dir / "facts.json"
-        path.write_text(
+        self._facts_path.write_text(
             json.dumps(facts, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        self._facts_cache = None
+        self._facts_mtime = None
 
     def import_facts(self, facts: list[dict]) -> int:
         """Merge extracted facts into the store. Returns the number added."""

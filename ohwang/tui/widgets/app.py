@@ -147,13 +147,13 @@ class OhWangApp(App):
             new_model = value[len("/model "):].strip()
             self.config.model = new_model
             self.agent.provider.model = new_model
-            self.query_one("#chat", ChatLog).write(f"Model set to {new_model}")
+            self.query_one("#chat", ChatPanel).write(f"Model set to {new_model}")
             return
 
         self._run_prompt(value)
 
     def _run_prompt(self, prompt: str) -> None:
-        chat = self.query_one("#chat", ChatLog)
+        chat = self.query_one("#chat", ChatPanel)
         tools = self.query_one("#tools", ToolPanel)
         chat.write(f"\n[bold cyan]You:[/bold cyan] {prompt}")
 
@@ -188,19 +188,19 @@ class OhWangApp(App):
             chat.write(f"\n[bold red]Error:[/bold red] {exc}")
 
     def _show_tools(self) -> None:
-        chat = self.query_one("#chat", ChatLog)
+        chat = self.query_one("#chat", ChatPanel)
         for t in self.agent.tools:
             chat.write(f"  {t.name}  [{t.default_permission}]")
 
     def action_clear(self) -> None:
         self.agent.reset()
-        self.query_one("#chat", ChatLog).clear()
-        self.query_one("#chat", ChatLog).write("Conversation cleared.")
+        self.query_one("#chat", ChatPanel).clear()
+        self.query_one("#chat", ChatPanel).write("Conversation cleared.")
 
     def action_toggle_auto(self) -> None:
         self.agent.permissions.auto_approve = not self.agent.permissions.auto_approve
         state = "ON" if self.agent.permissions.auto_approve else "OFF"
-        self.query_one("#chat", ChatLog).write(f"Auto-approve {state}.")
+        self.query_one("#chat", ChatPanel).write(f"Auto-approve {state}.")
         self.query_one("#status", StatusPanel).update_status(
             self.config.provider,
             self.config.model,
@@ -211,10 +211,10 @@ class OhWangApp(App):
         from ...modes import Mode
         if self.agent.permissions.mode == Mode.PLAN:
             self.agent.permissions.mode = Mode.DEFAULT
-            self.query_one("#chat", ChatLog).write("Exited plan mode.")
+            self.query_one("#chat", ChatPanel).write("Exited plan mode.")
         else:
             self.agent.permissions.mode = Mode.PLAN
-            self.query_one("#chat", ChatLog).write("Entered plan mode (read-only).")
+            self.query_one("#chat", ChatPanel).write("Entered plan mode (read-only).")
         self.query_one("#status", StatusPanel).update_status(
             self.config.provider,
             self.config.model,

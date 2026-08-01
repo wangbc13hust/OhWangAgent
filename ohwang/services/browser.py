@@ -94,3 +94,10 @@ class BrowserSession:
                 except Exception:
                     pass
                 self._page = self._context = self._browser = None
+            pw = getattr(self, "_pw", None)
+            if pw is not None:
+                try:
+                    pw.stop()
+                except Exception:
+                    pass
+                self._pw = None

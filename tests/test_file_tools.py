@@ -123,6 +123,20 @@ def test_glob_no_match(tmp_path):
     assert "No files matched" in r.content
 
 
+def test_glob_skips_ignored_dirs(tmp_path):
+    ignored = tmp_path / ".venv"
+    ignored.mkdir()
+    (ignored / "x.py").write_text("", encoding="utf-8")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "y.py").write_text("", encoding="utf-8")
+    (tmp_path / "real.py").write_text("", encoding="utf-8")
+    r = GlobTool().execute({"pattern": "**/*.py", "path": str(tmp_path)})
+    assert not r.is_error
+    assert "real.py" in r.content
+    assert ".venv" not in r.content
+    assert "node_modules" not in r.content
+
+
 def test_glob_bad_dir():
     r = GlobTool().execute({"pattern": "**/*.py", "path": "Z:/definitely/not/here"})
     assert r.is_error

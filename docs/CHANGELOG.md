@@ -1,13 +1,30 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244（全绿）。
 
 ---
 
 ## 2026-08-01
 
 ### 代码审查（本轮）
+
+| 提交 | 内容 |
+| :--- | :--- |
+| — | **全量代码检视**：通读 `ohwang/` 全部 60+ 文件，修复以下问题 |
+| — | **TUI bug 修复**：`tui/widgets/app.py` 全部 8 处引用未定义的 `ChatLog`（类实际叫 `ChatPanel`），TUI 启动即 NameError；已替换为 `ChatPanel`，并新增 AST 测试防止回退 |
+| — | **glob 一致性**：`glob` 工具此前不跳过忽略目录（`grep` 有 `_SKIP_DIRS`），`**/*.py` 会扫入 `.venv`/`node_modules`；现与 grep 共用同一组忽略目录，并支持前缀定位 |
+| — | **MemoryStore 缓存**：agent 每轮迭代调用 `_effective_system()` → `render_context()` 每次都读盘（facts.json + CLAUDE.md）；现按 mtime 缓存 facts，写操作显式失效，避免重复磁盘 IO |
+| — | **资源清理**：`BrowserSession.close()` 现在也停掉 Playwright 实例（`_pw.stop()`）；`services/__init__` 补导出 `load_lsp_tools`（与 `load_mcp_tools` 对齐） |
+| — | **性能/健壮性**：`file_read` 用 `itertools.islice` 按需读取避免全量载入；`SessionStore.save` 改为存在性探测避免同秒保存覆盖 |
+
+### 测试
+
+244 个测试全绿（本轮 +5：glob 忽略目录、memory 缓存失效/mtime 命中、session 秒内唯一 ID、TUI AST 无未定义引用）。
+
+---
+
+### 功能开发
 
 | 提交 | 内容 |
 | :--- | :--- |
