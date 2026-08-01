@@ -27,6 +27,20 @@ def test_bad_expression_rejected():
     assert cron_matches("not a cron", 0, 0, 1, 1, 0) is False
 
 
+def test_add_rejects_invalid_even_when_matches_now():
+    lt = time.localtime()
+    expr = f"{lt.tm_min} {lt.tm_hour} {lt.tm_mday} {lt.tm_mon} {lt.tm_wday} extra"
+    s = Scheduler()
+    assert not s.add("j", expr, "x")
+    assert s.count() == 0
+
+
+def test_add_does_not_raise_on_garbage_fields():
+    s = Scheduler()
+    assert not s.add("j", "abc * * * *", "x")
+    assert s.count() == 0
+
+
 def test_scheduler_add_remove_list():
     s = Scheduler()
     assert s.add("j1", "*/5 * * * *", "run tests")
@@ -65,3 +79,19 @@ def test_scheduler_runner_error_is_swallowed():
     time.sleep(2)
     s.stop()
     assert s.count() == 1
+
+
+def test_scheduler_stop_joins_thread():
+    s = Scheduler()
+    s.start()
+    thread = s._thread
+    assert thread is not None and thread.is_alive()
+    s.stop()
+    assert not thread.is_alive()
+    assert s._thread is None
+
+
+def test_scheduler_stop_without_start_is_safe():
+    s = Scheduler()
+    s.stop()
+    assert s._thread is None

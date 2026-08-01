@@ -1,9 +1,10 @@
 from ohwang.tools.powershell import PowerShellTool
+from ohwang.tools.shell_output import truncate
 
 
 def test_truncate_keeps_ends():
     text = "a" * 100
-    out = PowerShellTool._truncate(text, limit=20)
+    out = truncate(text, limit=20)
     assert out.startswith("a" * 10)
     assert out.endswith("a" * 10)
     assert "truncated" in out
@@ -11,7 +12,7 @@ def test_truncate_keeps_ends():
 
 def test_truncate_short_text_unchanged():
     text = "short"
-    assert PowerShellTool._truncate(text, limit=20) == "short"
+    assert truncate(text, limit=20) == "short"
 
 
 def test_execute_runs_powershell():

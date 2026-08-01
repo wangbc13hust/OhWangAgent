@@ -4,6 +4,7 @@ import os
 import subprocess
 
 from .base import BaseTool, ToolResult
+from .shell_output import command_result
 
 
 class BashTool(BaseTool):
@@ -31,7 +32,6 @@ class BashTool(BaseTool):
     def execute(self, input: dict) -> ToolResult:
         command = input["command"]
         timeout = input.get("timeout", 120)
-        cwd = os.getcwd()
 
         try:
             proc = subprocess.run(
@@ -40,30 +40,11 @@ class BashTool(BaseTool):
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                cwd=cwd,
+                cwd=os.getcwd(),
             )
         except subprocess.TimeoutExpired:
-            return ToolResult(
-                content=f"Command timed out after {timeout}s.", is_error=True
-            )
+            return command_result("", "", 0, timed_out=True, timeout=timeout)
 
-        stdout = proc.stdout or ""
-        stderr = proc.stderr or ""
-        combined = stdout
-        if stderr:
-            combined += ("\n--- stderr ---\n" + stderr) if stdout else stderr
-
-        combined = self._truncate(combined)
-        header = f"[exit code {proc.returncode}]\n"
-        return ToolResult(content=header + combined, is_error=proc.returncode != 0)
-
-    @staticmethod
-    def _truncate(text: str, limit: int = 20000) -> str:
-        if len(text) <= limit:
-            return text
-        keep = limit // 2
-        return (
-            text[:keep]
-            + f"\n... [truncated {len(text) - limit} chars] ...\n"
-            + text[-keep:]
+        return command_result(
+            proc.stdout or "", proc.stderr or "", proc.returncode
         )

@@ -74,6 +74,10 @@ class Scheduler:
 
     def stop(self) -> None:
         self._stop.set()
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=5)
+        self._thread = None
 
     def _loop(self) -> None:
         while not self._stop.is_set():
@@ -98,10 +102,8 @@ class Scheduler:
             self._stop.wait(1)
 
     def add(self, job_id: str, expression: str, prompt: str) -> bool:
-        if not cron_matches(expression, *self._now_parts()):
-            # Validate by attempting to parse fields.
-            if not self._valid_expression(expression):
-                return False
+        if not self._valid_expression(expression):
+            return False
         with self._lock:
             if job_id in self._jobs:
                 return False
@@ -119,10 +121,6 @@ class Scheduler:
     def count(self) -> int:
         with self._lock:
             return len(self._jobs)
-
-    def _now_parts(self) -> tuple[int, int, int, int, int]:
-        lt = time.localtime()
-        return lt.tm_min, lt.tm_hour, lt.tm_mday, lt.tm_mon, lt.tm_wday
 
     @staticmethod
     def _valid_expression(expression: str) -> bool:

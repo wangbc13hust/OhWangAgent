@@ -79,7 +79,8 @@ ohwang/
 │   ├── base.py            BaseTool / ToolResult
 │   ├── registry.py        ToolRegistry（name → tool）
 │   ├── __init__.py        default_tools() 按依赖装配
-│   ├── bash.py / powershell.py       Shell 执行
+│   ├── bash.py / powershell.py       Shell 执行（共用 shell_output.py）
+│   ├── shell_output.py               truncate / command_result 公共 helper
 │   ├── file_read.py / file_write.py / file_edit.py / grep.py / glob.py
 │   ├── web_fetch.py / web_search.py / web_browser.py   Web
 │   ├── tool_search.py     工具检索（把 registry 作为工具暴露）

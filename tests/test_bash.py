@@ -3,6 +3,7 @@ import sys
 import pytest
 
 from ohwang.tools.bash import BashTool
+from ohwang.tools.shell_output import command_result, truncate
 
 
 def test_bash_executes_command():
@@ -32,12 +33,34 @@ def test_bash_timeout():
     assert "timed out" in r.content
 
 
-def test_bash_truncate():
+def test_truncate_keeps_ends():
     text = "x" * 100
-    out = BashTool._truncate(text, limit=20)
+    out = truncate(text, limit=20)
     assert "truncated" in out
     assert len(out) < len(text)
+    assert out.startswith("x" * 10)
+    assert out.endswith("x" * 10)
 
 
-def test_bash_truncate_short_text_unchanged():
-    assert BashTool._truncate("short", limit=20) == "short"
+def test_truncate_short_text_unchanged():
+    assert truncate("short", limit=20) == "short"
+
+
+def test_command_result_success():
+    r = command_result("out", "err", 0)
+    assert not r.is_error
+    assert "out" in r.content
+    assert "err" in r.content
+    assert "[exit code 0]" in r.content
+
+
+def test_command_result_nonzero():
+    r = command_result("", "", 3)
+    assert r.is_error
+    assert "[exit code 3]" in r.content
+
+
+def test_command_result_timeout():
+    r = command_result("", "", 0, timed_out=True, timeout=1)
+    assert r.is_error
+    assert "timed out" in r.content
