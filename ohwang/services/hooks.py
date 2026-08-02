@@ -9,13 +9,34 @@ from typing import Callable, Optional
 _PRE = "pre_tool_use"
 _POST = "post_tool_use"
 _NOTIF = "notif"
-EVENTS = (_PRE, _POST, _NOTIF)
+_STOP = "stop"
+_USER_PROMPT = "user_prompt_submit"
+_SESSION_START = "session_start"
+_SESSION_END = "session_end"
+_SUB_START = "subagent_start"
+_SUB_END = "subagent_stop"
+EVENTS = (
+    _PRE,
+    _POST,
+    _NOTIF,
+    _STOP,
+    _USER_PROMPT,
+    _SESSION_START,
+    _SESSION_END,
+    _SUB_START,
+    _SUB_END,
+)
 
 PreToolHandler = Callable[[str, dict], Optional[dict | bool]]
 
 
 class HookManager:
-    """Lifecycle hooks: pre_tool_use / post_tool_use / notif.
+    """Lifecycle hooks: pre_tool_use / post_tool_use + notification events.
+
+    Blocking events (pre_tool_use / post_tool_use) run through
+    `run_pre_tool` / `run_post_tool`; notification-style events (notif, stop,
+    user_prompt_submit, session_start/end, subagent_start/stop) fire through
+    the generic `emit` and never block the agent loop.
 
     Two handler types:
       - Python callables registered via `register(event, fn)`.
@@ -96,6 +117,23 @@ class HookManager:
             except Exception:
                 continue
         for entry in self._cmds[_NOTIF]:
+            self._run_cmd(entry["command"])
+
+    def emit(self, event: str, **kwargs) -> None:
+        """Fire a notification-style lifecycle event (non-blocking).
+
+        Python handlers receive the kwargs verbatim (`cb(**kwargs)`); errors
+        are swallowed so a broken hook never disrupts the agent loop. JSON
+        commands for the event run last (exit code is ignored, like notify).
+        """
+        if event not in EVENTS:
+            raise ValueError(f"unknown hook event: {event}")
+        for cb in self._handlers[event]:
+            try:
+                cb(**kwargs)
+            except Exception:
+                continue
+        for entry in self._cmds[event]:
             self._run_cmd(entry["command"])
 
     def _run_cmd(self, command: str) -> tuple[int, str]:

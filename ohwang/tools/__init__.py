@@ -21,6 +21,7 @@ def default_tools(
     memory_store=None,
     skill_loader=None,
     task_store=None,
+    hooks=None,
 ) -> ToolRegistry:
     """Build a registry with the core coding tools + extensions.
 
@@ -137,7 +138,7 @@ def default_tools(
 
     if agent_factory is not None:
         from .agent_tool import AgentTool
-        registry.register(AgentTool(agent_factory))
+        registry.register(AgentTool(agent_factory, hooks=hooks))
 
     from ..services.worktree import WorktreeManager
     from .worktree import EnterWorktreeTool, ExitWorktreeTool

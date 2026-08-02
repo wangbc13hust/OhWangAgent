@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
 from typing import Iterator
 
@@ -13,11 +14,15 @@ class BaseProvider(ABC):
         self.usage_prompt_tokens: int = 0
         self.usage_completion_tokens: int = 0
         self.usage_calls: int = 0
+        # Guards the usage counters: parallel sub-agents share one provider
+        # instance and chat() from multiple threads (see AgentTool tasks).
+        self._usage_lock = threading.Lock()
 
     def _record_usage(self, prompt_tokens: int, completion_tokens: int) -> None:
-        self.usage_prompt_tokens += prompt_tokens
-        self.usage_completion_tokens += completion_tokens
-        self.usage_calls += 1
+        with self._usage_lock:
+            self.usage_prompt_tokens += prompt_tokens
+            self.usage_completion_tokens += completion_tokens
+            self.usage_calls += 1
 
     def usage_report(self) -> dict:
         return {

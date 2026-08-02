@@ -1,6 +1,6 @@
 # OhWangAgent 架构文档
 
-> 版本：v0.3.0 · 对应代码提交 `ca4841e`（2026-08-02 第一批能力补齐批次：Git 上下文注入 / 危险命令模式检测 / /cost 见 §3.5/3.6/3.8；flags 真值大小写修复见 CHANGELOG）· 533 测试全绿
+> 版本：v0.3.0 · 对应代码提交 `a6229c5`（2026-08-02 第二批能力补齐批次：并行子 agent / tiktoken 精确计数 / Hooks 事件扩展见 §3.1/3.5；第一批 Git 上下文注入 / 危险命令模式检测 / /cost 见 §3.5/3.6/3.8）· 549 测试全绿
 > （覆盖率 91%，实测命令：`coverage run --source=ohwang -m pytest` + `coverage report --omit="ohwang/tui/widgets/*"`）
 >
 > 定位：交互式 CLI **办公 agent** —— 文档撰写、会议纪要、资料检索、任务管理、
@@ -97,7 +97,7 @@ ohwang/
 │   ├── verify_plan.py     VerifyPlanExecutionTool（计划执行按步校验）
 │   ├── plan_mode.py       enter/exit_plan_mode
 │   ├── ask_user.py        ask_user_question
-│   ├── agent_tool.py      子 agent（agent_factory）
+│   ├── agent_tool.py      子 agent（agent_factory；tasks 并行 fan-out，上限 4）
 │   ├── schedule.py        cron_create/delete/list
 │   ├── worktree.py        enter/exit_worktree
 │   ├── config.py          config（运行时权限规则）
@@ -109,7 +109,7 @@ ohwang/
 ├── services/             横切服务
 │   ├── window.py          上下文窗口解析（env OHWANG_MAX_CONTEXT_TOKENS > config > preset > 默认）
 │   ├── compact.py         上下文压缩（阈值由窗口派生）、reactive 压缩辅助、熔断硬裁、microcompact
-│   ├── tokens.py          token 估算（CJK 按 ~1 字符/token）
+│   ├── tokens.py          token 计数（tiktoken 精确 / 离线回退启发式，支持 model= 透传）
 │   ├── session.py         会话保存/resume（.ohwang/sessions/）
 │   ├── summarizer.py      会话摘要蒸馏（/save 时生成，复用 Compactor 序列化）
 │   ├── settings.py        权限规则文件读写
@@ -120,7 +120,7 @@ ohwang/
 │   ├── browser.py         Playwright 浏览器会话
 │   ├── memory.py          MemoryStore（分层 project/全局 + 类型分级 + 相关性排名）
 │   │                       + MemoryExtractor（自动记忆提取，user 路由 + 游标持久化）
-│   ├── hooks.py           HookManager（pre/post/notif）
+│   ├── hooks.py           HookManager（9 事件 + 通用 emit）
 │   ├── policy.py          PolicyLimits（调用上限）
 │   ├── summary.py         UsageTracker（工具调用统计）
 │   └── lsp.py             LSPClient（stdio JSON-RPC，textDocument/diagnostic）
@@ -141,7 +141,7 @@ ohwang/
 
 `Agent.run(user_input, on_text, on_tool_call, on_tool_result, on_compact)`：
 
-1. 追加 `user` 消息。
+1. 追加 `user` 消息，并触发 `user_prompt_submit` 钩子（携带 `prompt`）。
 2. 每回合先 `microcompact()` 裁剪超限（>30K 字符）tool_result 为
    `[Old tool result content cleared (was N chars)]`，防巨型工具输出拖垮上下文。
 3. 达到压缩阈值时用 `Compactor` 压缩历史；阈值默认由模型上下文窗口派生
@@ -154,9 +154,14 @@ ohwang/
    **Reactive 压缩**：若 API 抛 "prompt too long" 类错误，当回合内 `compact()` 摘要
    旧消息后重试同一次 chat（至多一次，镜像 Claude Code withheld-413 路径）。
 5. 有 `tool_use` 则每条经 `_run_tool()` 执行（见下），结果组装为一条
-   `user` 消息回灌；无 `tool_use` 即结束。
+   `user` 消息回灌；无 `tool_use` 即结束，随后触发 `stop` 钩子（携带
+   `final_text`）并返回。
 6. `_run_tool()` 调用链：**hook(pre) → 权限 → policy → 执行 → 统计/后置钩子**，
    工具抛异常兜底为 `is_error` 结果块而非让循环崩溃。
+
+（`Agent.run` 生命周期新事件：`user_prompt_submit`、`stop`；会话级
+`session_start/end` 由 `cli.repl` 触发，`subagent_start/stop` 由 `AgentTool` 触发——
+均为通知型，不阻断流程。）
 
 状态：`agent.messages`（会话历史）、`agent.iterations`、`agent.usage`。
 `_effective_system()` 在单 run 内缓存 system + todo + 记忆上下文。
@@ -221,11 +226,11 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 | 服务 | 职责 | 数据 |
 | :--- | :--- | :--- |
 | `window` | `effective_context_window(config)`：解析有效上下文窗口，优先级 env `OHWANG_MAX_CONTEXT_TOKENS` > config > 默认 128K；压缩阈值由此派生 | — |
-| `tokens` | 本地 token 估算（拉丁 ~4 字符/token，CJK ~1 字符/token + 每消息/块开销），供压缩阈值与预算判断，非精确分词 | — |
+| `tokens` | token 计数：tiktoken 精确分词（已知 OpenAI 模型走 `encoding_for_model`，未知/国内模型回退 `cl100k_base`；模块级编码缓存 + 锁）；tiktoken 缺失 / BPE 下载失败自动回退启发式（拉丁 ~4 字符/token、CJK ~1 字符/token + 每消息/块开销），离线不降级；`estimate_*` 支持 `model=` 透传，供压缩阈值与预算判断 | — |
 | `git_context` | 采集当前分支 / 最近 5 条提交 / 工作区状态，注入 `Agent._effective_system()`（非仓库或失败静默返回空串；TTL 5s 缓存防每轮重建重复 spawn git 子进程） | — |
 | `MemoryStore` | 分层持久记忆：项目层 `{workdir}` + 全局层 `~/.ohwang`（懒创建）；事实带 `type`（user/feedback/project/reference）；`render_context(query)` 空 query 注入每层最新 ≤30 条，带 query 按确定性相关性打分取 top-10（修复"注入最新 30 条"与双重头） | `CLAUDE.md`/`AGENTS.md` + `.ohwang/memory/facts.json`（+ `~/.ohwang/memory/facts.json`） |
 | `MemoryExtractor` | 会话增长 ≥20 条时让模型提炼事实自动入库；提取提示强制 4 类型分类并排除单会话临时内容（会议记录/一次性数据图表）；`type=user` 自动路由到全局层；游标 `extract_cursor.json` 跨会话持久化防重复提取 | `.ohwang/memory/facts.json` + `extract_cursor.json` |
-| `HookManager` | pre/post tool + notif 生命周期钩子 | `.ohwang/hooks.json` 命令钩子 |
+| `HookManager` | 9 生命周期事件：pre/post_tool_use、notif、stop、user_prompt_submit、session_start/end、subagent_start/stop；通用 `emit(event, **kwargs)`（Python handler 异常吞掉、命令钩子照常执行），`notify()` 保留为 `emit("notif", ...)` 便捷封装 | `.ohwang/hooks.json` 命令钩子 |
 | `guards` | 内置安全守卫：pre_tool_use 规则阻断危险 shell 命令（`rm -rf /`、`git push --force`、磁盘格式化、fork bomb、系统关机等，词边界防误伤）；flag `dangerous_command_guard` 默认开启 | — |
 | `PolicyLimits` | 工具调用总量/单工具上限，防失控循环；构造默认 200，`policy.json` 存在但缺 `max_tool_calls` 键时 `load()` 回退 **1000**（两路径默认值分歧，见 PROJECT_REVIEW）；**被权限拒绝的调用也计入预算**（防拒绝后无限重试） | `.ohwang/policy.json` |
 | `UsageTracker` | 工具调用统计（`/summary`、brief 工具） | 内存 |
@@ -321,7 +326,7 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 
 ---
 
-## 6. 测试架构（`tests/`，53 个文件 / 533 个用例，覆盖率 91%）
+## 6. 测试架构（`tests/`，53 个文件 / 549 个用例，覆盖率 91%）
 
 - `helpers.py`：`ScriptedProvider`（重放事件序列）、`MockSearchProvider`、
   `build_agent()`——无网络、无真实模型的集成测试基座。
@@ -340,7 +345,11 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   分层记忆批次新增 `test_memory_layers.py`、`test_memory_extract.py`、
   `test_session.py`；`test_flags.py` 追加 2 个 env 真值大小写用例
   （`f741a5e` 修复回归）；第一批能力补齐新增 `test_git_context.py`、
-  `test_guards.py`、`test_cost.py`（Git 注入/危险命令守卫//cost）。
+  `test_guards.py`、`test_cost.py`（Git 注入/危险命令守卫//cost）；
+  第二批能力补齐：`test_agent_tool.py` 追加并行 tasks 按序汇总/失败隔离、
+  `test_hooks.py` 追加新事件 emit/kwargs/异常吞没/Agent.run 与 AgentTool 触发、
+  `test_tokens.py` 重写（tiktoken 精确 + 启发式回退 + 消息 overhead +
+  `should_compact` model 透传）。
 - 覆盖率 91%（`coverage run --source=ohwang -m pytest` 后
   `coverage report --omit="ohwang/tui/widgets/*"` 实测；按模块补齐：
   `test_providers.py`、`test_mcp.py`、`test_browser.py`、`test_lsp.py`、
@@ -370,7 +379,8 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 - `cli.build_agent` 中 `_agent_factory`/`_run_locked` 存在闭包前向引用
   （引用后文才定义的 `agent`/`compactor`/`hooks`/`policy`），靠晚绑定可运行，
   但重排装配顺序会引入启动期风险（见 `docs/PROJECT_REVIEW.md` §3.1，建议显式注入）。
-- 主/子 agent 共享 Provider 对象，Provider 级 token 统计会混入（见评审 §3.2）。
+- 主/子 agent 共享 Provider 对象，Provider 级 token 统计会混入子 agent 用量（有意为之：
+  子 agent 成本计入当前会话；`_record_usage` 已加锁，并行写无竞态，见评审 §3.2）。
 - 白领一天工作流实测暴露项（2026-08-02，详见 CHANGELOG 该日章节）：`memory_read`
   多词查询命中弱（`"key1 key2"` 语义过滤未命中刚写入的 fact，需 `scope=all` 全量读取
   兜底）；`| tail` 管道缓冲下后台任务无进度反馈、易被误判卡死；`web_browser` 依赖

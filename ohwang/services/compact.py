@@ -99,9 +99,9 @@ class Compactor:
         self.max_failures = 3
         self._consecutive_failures = 0
 
-    def should_compact(self, messages: list[dict]) -> bool:
+    def should_compact(self, messages: list[dict], model: str | None = None) -> bool:
         return (
-            estimate_messages_tokens(messages) > self.threshold
+            estimate_messages_tokens(messages, model) > self.threshold
             and len(messages) > self.keep_recent + 2
         )
 

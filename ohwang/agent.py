@@ -112,6 +112,8 @@ class Agent:
             {"role": "user", "content": [{"type": "text", "text": user_input}]}
         )
         self._invalidate_system()
+        if self.hooks is not None:
+            self.hooks.emit("user_prompt_submit", prompt=user_input)
 
         final_text = ""
         for _ in range(max_iterations):
@@ -121,7 +123,9 @@ class Agent:
             # command dump cannot silently bloat the context (microCompact).
             microcompact(self.messages)
 
-            if self.compactor is not None and self.compactor.should_compact(self.messages):
+            if self.compactor is not None and self.compactor.should_compact(
+                self.messages, model=self.provider.model
+            ):
                 before = len(self.messages)
                 self.messages = self.compactor.compact(
                     self.messages, self.provider, self._effective_system()
@@ -221,6 +225,8 @@ class Agent:
             self._invalidate_system()
             self.messages.append({"role": "user", "content": result_blocks})
 
+        if self.hooks is not None:
+            self.hooks.emit("stop", final_text=final_text)
         return final_text
 
     def _run_tool(self, tool_use: dict) -> dict:

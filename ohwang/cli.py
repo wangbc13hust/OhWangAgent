@@ -263,6 +263,11 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
             memory_store=memory_store,
         )
 
+    hooks = HookManager(config.workdir)
+    if flags.is_enabled("dangerous_command_guard"):
+        hooks.register("pre_tool_use", dangerous_command_hook)
+    loaded_hooks = hooks.load_json()
+
     tools = default_tools(
         todo_store=todo_store,
         permissions=permissions,
@@ -277,6 +282,7 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
         memory_store=memory_store,
         skill_loader=skill_loader,
         task_store=task_store,
+        hooks=hooks,
     )
 
     if not args.no_mcp:
@@ -305,10 +311,6 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
     )
     session_store = SessionStore(config.workdir)
 
-    hooks = HookManager(config.workdir)
-    if flags.is_enabled("dangerous_command_guard"):
-        hooks.register("pre_tool_use", dangerous_command_hook)
-    loaded_hooks = hooks.load_json()
     policy = PolicyLimits.load(config.workdir)
     if loaded_hooks:
         renderer.info(f"Loaded {loaded_hooks} hook(s) from .ohwang/hooks.json.")
@@ -500,6 +502,9 @@ def repl(
         _run_once(agent, renderer, one_shot, run_lock, memory_extractor)
         return
 
+    if agent.hooks is not None:
+        agent.hooks.emit("session_start")
+
     if not agent.messages:
         suggestions = _suggest_prompts(config.workdir, agent)
         if suggestions:
@@ -606,6 +611,9 @@ def repl(
             renderer.info(f"Model set to {new_model}.")
             continue
         _run_once(agent, renderer, line, run_lock, memory_extractor)
+
+    if agent.hooks is not None:
+        agent.hooks.emit("session_end")
 
 
 def main(argv=None) -> int:

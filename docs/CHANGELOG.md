@@ -1,11 +1,42 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497 → 515 → 517 → 533（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497 → 515 → 517 → 533 → 549（全绿）。
 
 ---
 
 ## 2026-08-02
+
+### 第二批能力补齐（并行子 agent / 精确 token 计数 / Hooks 事件扩展）
+
+对照 Claude Code 差距清单再落地三项增量能力（本轮明确引入第三方依赖 tiktoken）：
+
+- **并行子 agent（P0 #6）**：`AgentTool` 新增可选 `tasks` 数组（每项 `{description, prompt}`），
+  有 `tasks` 时走 `ThreadPoolExecutor`（并发上限 4，`pool.map` 保持输入顺序）并行
+  `sub.run(prompt)`，结果按输入顺序汇总为 `[<i>] <description>: <result>`；单个子任务
+  抛异常只标记该项 `Sub-agent failed: <err>`，不中断其他任务（整体 `is_error=False`）。
+  单 `prompt` 旧路径不变。子 agent 共享父 provider 时，usage 计数器
+  （`base.py::_record_usage`）加 `threading.Lock` 防护并行写竞态。
+- **精确 token 计数（P0 #3）**：`services/tokens.py` 换 `tiktoken`——已知 OpenAI 模型走
+  `encoding_for_model`，未知/国内模型回退 `cl100k_base`（DeepSeek 官方推荐近似）；
+  模块级编码缓存 + 锁。`estimate_text_tokens`/`estimate_messages_tokens` 新增可选
+  `model` 参数，经 `Compactor.should_compact(messages, model=...)` 透传
+  `provider.model`。**容错**：tiktoken 缺失 / BPE 下载失败 / encode 异常自动回退原
+  启发式（CJK 1 字符/token、其他 4 字符/token），离线不降级。pyproject 引入
+  `tiktoken>=0.7`。
+- **Hooks 事件扩展（P1 #7）**：`EVENTS` 由 3 扩到 9（新增 `stop`、`user_prompt_submit`、
+  `session_start`、`session_end`、`subagent_start`、`subagent_stop`）；新增通用
+  `emit(event, **kwargs)`（Python handler 收 kwargs，异常吞掉；JSON 命令事件照常执行），
+  `notify()` 保留为 `emit("notif", ...)` 便捷封装。接线：`Agent.run` 提交用户消息后触发
+  `user_prompt_submit`、返回前触发 `stop`；`cli.repl` 进入/退出循环触发
+  `session_start/end`；`AgentTool` 子任务前后触发 `subagent_start/stop`。
+
+### 测试
+
+549 个测试全绿（本轮 +16：并行 tasks 按序汇总/失败隔离、tasks schema 断言 2；
+hooks 新事件 emit/kwargs/未知事件/异常吞没/Agent.run 触发/AgentTool 触发 5；
+tokens 精确计数/启发式回退/消息 overhead/should_compact 透传 9，旧启发式断言改为
+monkeypatch 回退路径）。
 
 ### 第一批能力补齐（Git 上下文 / 危险命令守卫 / /cost）
 

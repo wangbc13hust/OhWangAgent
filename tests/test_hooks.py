@@ -160,3 +160,89 @@ def test_load_json_accepts_bom(tmp_path):
     )
     hooks = HookManager(str(tmp_path))
     assert hooks.load_json() == 1
+
+
+def test_emit_new_events_called_with_kwargs():
+    hooks = HookManager()
+    seen = []
+    hooks.register("user_prompt_submit", lambda **kw: seen.append(kw))
+    hooks.register("stop", lambda **kw: seen.append(("stop", kw)))
+    hooks.emit("user_prompt_submit", prompt="hi")
+    hooks.emit("stop", final_text="done")
+    assert seen[0] == {"prompt": "hi"}
+    assert seen[1] == ("stop", {"final_text": "done"})
+
+
+def test_emit_unknown_event_rejected():
+    hooks = HookManager()
+    with pytest.raises(ValueError):
+        hooks.emit("no_such_event")
+
+
+def test_emit_swallows_handler_errors():
+    hooks = HookManager()
+
+    def boom(**kw):
+        raise RuntimeError("handler crash")
+
+    hooks.register("session_start", boom)
+    hooks.emit("session_start")  # must not raise
+
+
+def test_agent_run_fires_prompt_and_stop():
+    from ohwang.agent import Agent
+    from ohwang.config import Config
+    from ohwang.modes import Mode
+    from ohwang.permissions import PermissionManager
+    from ohwang.prompts import build_system_prompt
+    from ohwang.tools import default_tools
+    from ohwang.tools.todo import TodoStore
+    from tests.helpers import ScriptedProvider
+
+    events = []
+    hooks = HookManager()
+    hooks.register("user_prompt_submit", lambda **kw: events.append(("submit", kw)))
+    hooks.register("stop", lambda **kw: events.append(("stop", kw)))
+
+    config = Config(workdir=".", auto_approve=True).resolve()
+    provider = ScriptedProvider([[{"type": "text", "text": "hello back"}]])
+    perms = PermissionManager(mode=Mode.AUTO)
+    tools = default_tools(
+        todo_store=TodoStore(), permissions=perms, search_provider=None
+    )
+    agent = Agent(
+        provider,
+        tools,
+        perms,
+        config,
+        build_system_prompt(config.workdir),
+        hooks=hooks,
+    )
+    out = agent.run("hello")
+    assert out == "hello back"
+    submits = [e for e in events if e[0] == "submit"]
+    stops = [e for e in events if e[0] == "stop"]
+    assert submits and submits[0][1]["prompt"] == "hello"
+    assert stops and "hello back" in stops[0][1]["final_text"]
+
+
+def test_agent_tool_emits_subagent_hooks():
+    from ohwang.tools.agent_tool import AgentTool
+
+    events = []
+    hooks = HookManager()
+    hooks.register("subagent_start", lambda **kw: events.append(("start", kw)))
+    hooks.register("subagent_stop", lambda **kw: events.append(("stop", kw)))
+
+    class _R:
+        def run(self, prompt, **kwargs):
+            return "done"
+
+    tool = AgentTool(lambda: _R(), hooks=hooks)
+    r = tool.execute({"description": "d", "prompt": "p"})
+    assert r.is_error is False
+    starts = [e for e in events if e[0] == "start"]
+    stops = [e for e in events if e[0] == "stop"]
+    assert starts and starts[0][1]["prompt"] == "p"
+    assert starts[0][1]["description"] == "d"
+    assert stops
