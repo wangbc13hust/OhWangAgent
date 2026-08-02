@@ -19,23 +19,34 @@ context: |
   Read first: AGENTS.md, docs/ARCHITECTURE.md, docs/CHANGELOG.md.
 
 # Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+# Custom rules for each artifact, applied when that artifact is written.
+rules:
+  proposal:
+    - "Keep it to 1-2 pages: the 'why' first, not the 'how'."
+    - "Capability names must be kebab-case and match existing openspec/specs/ folders when the change modifies them."
+    - "Every capability in the Capabilities section needs a corresponding spec delta, or the change must set skip_specs: true."
+  specs:
+    - "Every requirement states observable behavior with SHALL/MUST; avoid should/may."
+    - "Every requirement has at least one scenario in exactly four-hashtag form (#### Scenario:) with WHEN/THEN lines."
+    - "Delta specs for existing capabilities use ADDED/MODIFIED/REMOVED Requirements with the FULL requirement block copied from the main spec."
+    - "Ground scenarios in implemented behavior and existing tests — a spec is a behavior contract, not an implementation plan."
+  design:
+    - "Note which layers are touched: agent loop, provider layer, tool registry, services, permissions, .ohwang state."
+    - "Call out cross-cutting concerns: context window / compaction, permission mode, hooks, policy caps, concurrency."
+  tasks:
+    - "Break work into steps that keep the test suite green; run `.venv\\Scripts\\python.exe -m pytest -q` before commit."
+    - "Chunk large file writes: Write the body, Edit to append, then Read back to confirm integrity."
 
 # Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+# Advisory guidance for how apply and archive work should be conducted.
+operations:
+  apply:
+    guidance:
+      - "Keep the suite green: run `.venv\\Scripts\\python.exe -m pytest -q` before committing."
+      - "Verify each delta requirement's behavior against the tests; add or update tests when behavior changes."
+      - "Report failures honestly — do not mark a step done that did not pass."
+  archive:
+    guidance:
+      - "Confirm the change's deltas are implemented and the test suite passes before archiving."
+      - "State what was folded into each main spec (ADDED/MODIFIED) in the archive summary."
+      - "For newly created specs, verify the Purpose carried over from the delta; if a TBD placeholder remains, fill it."
