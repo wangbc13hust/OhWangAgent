@@ -155,6 +155,69 @@ def test_build_agent_scheduler_runner_uses_shared_run_lock(monkeypatch, tmp_path
     assert entered[0] is lock, "scheduler runner must acquire the SAME lock the REPL uses"
 
 
+def test_build_agent_assembly_smoke_with_cron_background_fire(monkeypatch, tmp_path):
+    """Full assembly with the proactive scheduler started during build, then a
+    real background cron fire must run the shared-lock runner without raising.
+
+    Regression for the fragile closure ordering in build_agent
+    (docs/PROJECT_REVIEW.md §3.1/§4): reordering the agent construction relative
+    to scheduler.start() must not silently break background cron jobs.
+    """
+    import argparse
+    import threading
+    import time
+
+    import ohwang.cli as cli
+    from ohwang.providers.base import BaseProvider
+
+    monkeypatch.chdir(tmp_path)
+
+    class DummyProvider(BaseProvider):
+        name = "dummy"
+
+        def chat(self, system, messages, tools, max_tokens):
+            yield from ()
+
+    monkeypatch.setattr(cli, "create_provider", lambda *a, **k: DummyProvider("k", "m"))
+
+    run_calls: list[str] = []
+    monkeypatch.setattr(
+        cli.Agent,
+        "run",
+        lambda self, user_input, **kw: run_calls.append(user_input) or "done",
+    )
+
+    args = argparse.Namespace(
+        provider="deepseek",
+        model="m",
+        api_key="k",
+        base_url=None,
+        max_tokens=100,
+        auto_approve=False,
+        plan=False,
+        compact_threshold=100_000,
+        workdir=None,
+        no_mcp=True,
+        no_proactive=False,  # scheduler thread starts during assembly
+    )
+    (agent, _renderer, _config, _sessions, scheduler, _ext, _skills, _flags, _summarizer) = (
+        cli.build_agent(args, threading.Lock())
+    )
+
+    # Assembly completed with the scheduler already running — the runner must be
+    # wired so a background fire resolves the fully-constructed agent.
+    assert scheduler._runner is not None
+
+    # '* * * * *' matches any minute, so the next 1s poll fires it determinis-
+    # tically (no minute-boundary race like a current-time expression).
+    assert scheduler.add("smoke", "* * * * *", "hello")
+    deadline = time.time() + 6
+    while time.time() < deadline and not run_calls:
+        time.sleep(0.2)
+    scheduler.stop()
+    assert run_calls == ["hello"], "background cron job must invoke the agent run"
+
+
 def test_cmd_save_stores_summary(tmp_path):
     import ohwang.cli as cli
     from ohwang.services.session import SessionStore

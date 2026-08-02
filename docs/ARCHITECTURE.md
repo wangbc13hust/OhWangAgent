@@ -300,8 +300,15 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 - 装配顺序：Config.resolve → create_provider → Renderer → FeatureFlags →
   PermissionManager（mode 由 `--plan`/`-y` 推导）→ TodoStore/TaskStore/Usage/
   MemoryStore/MemoryExtractor → SessionSummarizer → SkillLoader → system_prompt →
-  Scheduler（runner=`_run_locked`）→ `default_tools(...)` → MCP/LSP 扩展 →
-  Compactor → SessionStore → HookManager/PolicyLimits → `agent = Agent(...)`。
+  **HookManager(+dangerous guard/hooks.json/实时 sub-agent hooks) →
+  Compactor → PolicyLimits**（前移到闭包定义之前）→ Scheduler → `_agent_factory`
+  定义 → `default_tools(...)`（iterations_getter 经 `agent_ref` 盒子）→
+  MCP/LSP 扩展 → SessionStore → `agent = Agent(...)` →
+  `_run_locked` + `scheduler._runner` → `scheduler.start()`。
+- **装配硬化（工程债务批次）**：`hooks`/`compactor`/`policy` 均在闭包引用前构造，
+  `_run_locked` 在 `agent` 构造后直接闭包捕获，`tools↔agent` 循环依赖
+  （BriefTool 需 `agent.iterations`）用显式 `agent_ref: dict[str, Agent]` 盒子打破——
+  不再有「引用后文才定义的名称」的晚绑定，重排装配顺序不再静默破坏 cron 后台。
 - 子 agent（`_agent_factory`）使用独立 AUTO `PermissionManager`，继承主 agent
   的 policy/compactor/usage/hooks，防子 agent 篡改主权限状态。
 - **TTY 实时反馈（第三批）**：`live = sys.stdout.isatty()` 门控全部实时通道——
@@ -374,7 +381,9 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   `should_compact` model 透传）；第三批长任务反馈：`test_bash.py`/`test_powershell.py`
   追加 `stream_command` 实时分块/超时 kill/`output_callback` 冒烟，`test_tui.py`
   追加 `tool_output` 前缀 escape/长行截断/partial 缓冲/端流冲刷 + `progress` 一行，
-  `test_agent_loop.py` 追加 `agent.run(on_turn=...)` 每轮递增回调。
+  `test_agent_loop.py` 追加 `agent.run(on_turn=...)` 每轮递增回调；
+  工程债务批次 `test_cli.py` 追加 `test_build_agent_assembly_smoke_with_cron_background_fire`
+  （装配冒烟：proactive 调度装配期间启动 + cron 后台经共享 run_lock 触发不炸）。
 - 覆盖率 91%（`coverage run --source=ohwang -m pytest` 后
   `coverage report --omit="ohwang/tui/widgets/*"` 实测；按模块补齐：
   `test_providers.py`、`test_mcp.py`、`test_browser.py`、`test_lsp.py`、
@@ -401,9 +410,6 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   `<name>/SKILL.md`（YAML frontmatter + markdown）与 `<name>.json` 两种格式，
   内置 debug/remember/simplify/verify 四个 bundled skill。
 - Textual TUI（`tui/widgets/app.py`）为实验性，正式入口仍用 Rich REPL。
-- `cli.build_agent` 中 `_agent_factory`/`_run_locked` 存在闭包前向引用
-  （引用后文才定义的 `agent`/`compactor`/`hooks`/`policy`），靠晚绑定可运行，
-  但重排装配顺序会引入启动期风险（见 `docs/PROJECT_REVIEW.md` §3.1，建议显式注入）。
 - 主/子 agent 共享 Provider 对象，Provider 级 token 统计会混入子 agent 用量（有意为之：
   子 agent 成本计入当前会话；`_record_usage` 已加锁，并行写无竞态，见评审 §3.2）。
 - 白领一天工作流实测暴露项（2026-08-02，详见 CHANGELOG 该日章节）：`memory_read`

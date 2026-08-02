@@ -94,7 +94,7 @@ ohwang> /exit
   cron scheduling, git worktree, MCP client, browser (Playwright).
 - **Context compaction**, session save/resume, `.ohwang/settings.json`
   permission rules, feature flags, skills/plugins/LSP/memory.
-- **222 unit tests + office scenario tests** (`tests/`).
+- **559 unit tests + office scenario tests** (`tests/`, 91% coverage).
 
 ## Status
 

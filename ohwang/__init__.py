@@ -1,3 +1,3 @@
-"""OhWangAgent — a Claude-Code-style coding agent built in Python."""
+"""OhWangAgent — a Claude-Code-style office agent built in Python."""
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"

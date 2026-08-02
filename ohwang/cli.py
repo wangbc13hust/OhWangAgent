@@ -238,28 +238,42 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
         skills=skill_loader.describe_all() if skill_loader is not None else None,
     )
 
+    # Build hooks/compactor/policy BEFORE the closures below reference them:
+    # late-binding over names assigned later in the function is what made the
+    # old assembly order fragile (see docs/PROJECT_REVIEW.md §3.1).
+    hooks = HookManager(config.workdir)
+    if flags.is_enabled("dangerous_command_guard"):
+        hooks.register("pre_tool_use", dangerous_command_hook)
+    loaded_hooks = hooks.load_json()
+
+    if live:
+        # Sub-agent progress lines. Fired from AgentTool (parallel tasks run in
+        # worker threads), so these handlers go through the thread-safe renderer.
+        hooks.register(
+            "subagent_start",
+            lambda **kw: renderer.progress(
+                f'▸ sub-agent "{kw.get("description", "subtask")}" 运行中…'
+            ),
+        )
+
+        def _subagent_stop(**kw):
+            desc = kw.get("description", "subtask")
+            if kw.get("error"):
+                renderer.progress(f'✗ sub-agent "{desc}" 失败')
+            else:
+                renderer.progress(f'✓ sub-agent "{desc}" 完成')
+
+        hooks.register("subagent_stop", _subagent_stop)
+
+    compactor = Compactor(
+        threshold_tokens=config.compact_threshold,
+        context_window=effective_context_window(config),
+    )
+    policy = PolicyLimits.load(config.workdir)
+
     scheduler = Scheduler(
         runner=None, state_file=os.path.join(config.workdir, ".ohwang", "cron.json")
     )
-
-    def _run_locked(prompt: str) -> str:
-        with run_lock:
-            try:
-                return agent.run(
-                    prompt,
-                    on_text=renderer.stream_text,
-                    on_tool_call=renderer.tool_call,
-                    on_tool_result=renderer.tool_result,
-                    on_compact=lambda b, a: renderer.warn(
-                        f"Context compacted: {b} -> {a} messages."
-                    ),
-                    on_turn=_stage_progress(renderer) if live else None,
-                )
-            except Exception as exc:
-                renderer.warn(f"Background task error: {exc}")
-                return ""
-
-    scheduler._runner = _run_locked
 
     def _agent_factory():
         # Sub-agents get their own AUTO PermissionManager so plan-mode / config
@@ -288,29 +302,10 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
             memory_store=memory_store,
         )
 
-    hooks = HookManager(config.workdir)
-    if flags.is_enabled("dangerous_command_guard"):
-        hooks.register("pre_tool_use", dangerous_command_hook)
-    loaded_hooks = hooks.load_json()
-
-    if live:
-        # Sub-agent progress lines. Fired from AgentTool (parallel tasks run in
-        # worker threads), so these handlers go through the thread-safe renderer.
-        hooks.register(
-            "subagent_start",
-            lambda **kw: renderer.progress(
-                f'▸ sub-agent "{kw.get("description", "subtask")}" 运行中…'
-            ),
-        )
-
-        def _subagent_stop(**kw):
-            desc = kw.get("description", "subtask")
-            if kw.get("error"):
-                renderer.progress(f'✗ sub-agent "{desc}" 失败')
-            else:
-                renderer.progress(f'✓ sub-agent "{desc}" 完成')
-
-        hooks.register("subagent_stop", _subagent_stop)
+    # `tools` and `agent` are mutually dependent (Agent takes the registry;
+    # BriefTool needs Agent.iterations via iterations_getter). Break the cycle
+    # with an explicit box instead of a closure over a name assigned later.
+    agent_ref: dict[str, Agent] = {}
 
     tools = default_tools(
         todo_store=todo_store,
@@ -322,7 +317,7 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
         flags=flags,
         usage=usage,
         display_callback=lambda text: renderer.console.print(text, highlight=False),
-        iterations_getter=lambda: agent.iterations,
+        iterations_getter=lambda: agent_ref["agent"].iterations if agent_ref else 0,
         memory_store=memory_store,
         skill_loader=skill_loader,
         task_store=task_store,
@@ -350,13 +345,8 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
                 "Web browser tool disabled: install playwright + `playwright install chromium`."
             )
 
-    compactor = Compactor(
-        threshold_tokens=config.compact_threshold,
-        context_window=effective_context_window(config),
-    )
     session_store = SessionStore(config.workdir)
 
-    policy = PolicyLimits.load(config.workdir)
     if loaded_hooks:
         renderer.info(f"Loaded {loaded_hooks} hook(s) from .ohwang/hooks.json.")
 
@@ -373,6 +363,29 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
         usage=usage,
         memory_store=memory_store,
     )
+    agent_ref["agent"] = agent
+
+    # Wired after `agent` exists so it closes over it directly (no forward
+    # reference). Shares the REPL's run_lock so the cron scheduler can never
+    # run the same Agent concurrently with the foreground loop.
+    def _run_locked(prompt: str) -> str:
+        with run_lock:
+            try:
+                return agent.run(
+                    prompt,
+                    on_text=renderer.stream_text,
+                    on_tool_call=renderer.tool_call,
+                    on_tool_result=renderer.tool_result,
+                    on_compact=lambda b, a: renderer.warn(
+                        f"Context compacted: {b} -> {a} messages."
+                    ),
+                    on_turn=_stage_progress(renderer) if live else None,
+                )
+            except Exception as exc:
+                renderer.warn(f"Background task error: {exc}")
+                return ""
+
+    scheduler._runner = _run_locked
 
     if flags.is_enabled("proactive") and not args.no_proactive:
         scheduler.start()

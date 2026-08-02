@@ -1,7 +1,7 @@
 # OhWangAgent — 架构对比与演进路线图
 
 > 基于对 Claude Code 泄露源码（`v2.1.88`，`Anthropic-Leaked-Source-Code`，1903 文件）的结构扫描，
-> 与 OhWangAgent 当前实现（`v0.3.0`，88 个 Python 文件，222 测试全绿）对比，给出修正后的演进计划。
+> 与 OhWangAgent 当前实现（`v0.3.0`，75 个 Python 文件，559 测试全绿，覆盖率 91%）对比，给出修正后的演进计划。
 >
 > **定位**：办公 agent（办公 Agent）——文档处理、会议纪要、资料检索、任务管理、报告撰写 + 软件工程能力。
 
