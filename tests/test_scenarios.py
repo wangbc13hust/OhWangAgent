@@ -34,19 +34,135 @@ def test_scenario_meeting_notes(tmp_path, monkeypatch):
                 "id": "t1",
                 "name": "file_write",
                 "input": {
-                    "file_path": "meeting-2026-08-01.md",
-                    "content": "# 周会纪要\n- 决策: 下周三发布 v0.4\n- 负责人: 张三",
+                    "file_path": "docs/meetings/2026-08-01-周会.md",
+                    "content": (
+                        "# 周会纪要\n"
+                        "## 会议信息\n"
+                        "- 日期: 2026-08-01\n"
+                        "- 主题: 周会\n"
+                        "## 议题与结论\n"
+                        "- 决策: 下周三发布 v0.4\n"
+                        "## 待办事项\n"
+                        "- [ ] 发布 v0.4（负责人: 张三，截止: 下周三）"
+                    ),
+                },
+            },
+            {
+                "type": "tool_use",
+                "id": "t2",
+                "name": "todo_write",
+                "input": {
+                    "todos": [
+                        {
+                            "content": "发布 v0.4（负责人: 张三，截止: 下周三）",
+                            "status": "pending",
+                            "priority": "high",
+                        }
+                    ]
                 },
             },
         ],
-        [{"type": "text", "text": "会议纪要已保存到 meeting-2026-08-01.md。"}],
+        [{"type": "text", "text": "会议纪要已保存到 docs/meetings/2026-08-01-周会.md。"}],
     ]
     agent, _ = build_agent(responses)
     final = agent.run("请把今天的周会内容写成一份会议纪要")
     assert "已保存" in final
-    content = (tmp_path / "meeting-2026-08-01.md").read_text(encoding="utf-8")
+    path = tmp_path / "docs/meetings/2026-08-01-周会.md"
+    assert path.exists()
+    content = path.read_text(encoding="utf-8")
     assert "周会纪要" in content
     assert "下周三发布" in content
+    assert "待办事项" in content
+    statuses = {t["content"]: t["status"] for t in agent.todo_store.todos}
+    assert statuses == {"发布 v0.4（负责人: 张三，截止: 下周三）": "pending"}
+
+
+def test_scenario_meeting_notes_uncertain_fields(tmp_path, monkeypatch):
+    """Material with no owner/deadline: minutes mark 待确认, todo carries it."""
+    monkeypatch.chdir(tmp_path)
+    responses = [
+        [
+            {"type": "text", "text": "我来生成会议纪要。"},
+            {
+                "type": "tool_use",
+                "id": "t1",
+                "name": "file_write",
+                "input": {
+                    "file_path": "docs/meetings/2026-08-01-周会.md",
+                    "content": (
+                        "# 周会纪要\n"
+                        "## 会议信息\n"
+                        "- 日期: 2026-08-01\n"
+                        "- 主题: 周会\n"
+                        "## 议题与结论\n"
+                        "- 结论: 推进方案 A\n"
+                        "## 待办事项\n"
+                        "- [ ] 调研方案 A（负责人: 待确认，截止: 待确认）"
+                    ),
+                },
+            },
+            {
+                "type": "tool_use",
+                "id": "t2",
+                "name": "todo_write",
+                "input": {
+                    "todos": [
+                        {
+                            "content": "调研方案 A（负责人: 待确认，截止: 待确认）",
+                            "status": "pending",
+                            "priority": "medium",
+                        }
+                    ]
+                },
+            },
+        ],
+        [{"type": "text", "text": "会议纪要已保存。"}],
+    ]
+    agent, _ = build_agent(responses)
+    final = agent.run("请把会议记录写成会议纪要")
+    assert "已保存" in final
+    content = (tmp_path / "docs/meetings/2026-08-01-周会.md").read_text(
+        encoding="utf-8"
+    )
+    assert "待确认" in content
+    assert all("待确认" in t["content"] for t in agent.todo_store.todos)
+
+
+def test_scenario_meeting_notes_no_action_items(tmp_path, monkeypatch):
+    """A meeting with no action items states so and leaves the todo list empty."""
+    monkeypatch.chdir(tmp_path)
+    responses = [
+        [
+            {"type": "text", "text": "我来生成会议纪要。"},
+            {
+                "type": "tool_use",
+                "id": "t1",
+                "name": "file_write",
+                "input": {
+                    "file_path": "docs/meetings/2026-08-01-同步会.md",
+                    "content": (
+                        "# 同步会纪要\n"
+                        "## 会议信息\n"
+                        "- 日期: 2026-08-01\n"
+                        "- 主题: 同步会\n"
+                        "## 议题与结论\n"
+                        "- 结论: 无\n"
+                        "## 待办事项\n"
+                        "- 无待办"
+                    ),
+                },
+            },
+        ],
+        [{"type": "text", "text": "会议纪要已保存。"}],
+    ]
+    agent, _ = build_agent(responses)
+    final = agent.run("请把同步会写成会议纪要")
+    assert "已保存" in final
+    content = (tmp_path / "docs/meetings/2026-08-01-同步会.md").read_text(
+        encoding="utf-8"
+    )
+    assert "无待办" in content
+    assert agent.todo_store.todos == []
 
 
 def test_scenario_document_archive(tmp_path, monkeypatch):

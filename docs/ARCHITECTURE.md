@@ -113,6 +113,7 @@ ohwang/
 │   ├── session.py         会话保存/resume（.ohwang/sessions/）
 │   ├── summarizer.py      会话摘要蒸馏（/save 时生成，复用 Compactor 序列化）
 │   ├── settings.py        权限规则文件读写
+│   ├── meeting_notes.py   会议纪要文件名推导（确定性落盘路径，配合 prompts 契约）
 │   ├── search.py          Tavily → Bing(默认,国内可达) → DuckDuckGo 回退
 │   ├── mcp.py             MCP 客户端 + 工具封装
 │   ├── worktree.py        git worktree 管理
@@ -251,6 +252,7 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 | `SessionStore` | 会话保存/resume（`save` 可带 `summary`；`/save` 经 `SessionSummarizer` 蒸馏简报，`/resume` 注入为 `# Session Context` 块） | `.ohwang/sessions/*.json` |
 | `SessionSummarizer` | 会话摘要蒸馏：复用 `Compactor._serialize` 转录、截断 80K 字符，LLM 失败静默返回 `""` | — |
 | `settings` | `.ohwang/settings.json` 权限规则 CRUD（allow/ask/deny glob 列表，幂等追加，无内存缓存） | `.ohwang/settings.json` |
+| `meeting_notes` | 会议纪要文件名推导：`slugify_topic`（保留 CJK/字母数字、其余压成 `-`、清路径分隔符）、`meeting_filename(date, topic)` → `docs/meetings/<date>-<topic>.md`；与 `prompts.MEETING_NOTES_GUIDE` 契约共用命名规则（日期取材料明示/暗示值，缺省当前日期） | — |
 | `Scheduler` | cron 调度，agent 空闲时可后台执行任务；**state_file 持久化，重启不丢** | `.ohwang/cron.json` |
 | `MCPClient` | 外部 MCP 服务器工具 | `.ohwang/mcp.json` |
 | `SearchProvider` | Tavily(有key) → Bing(默认,国内可达) → DDG 回退；不可达抛 `SearchError` | — |

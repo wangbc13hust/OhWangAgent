@@ -13,6 +13,7 @@ from .hooks import HookManager
 from .lsp import LSPClient, load_lsp_tools
 from .summary import UsageTracker
 from .policy import PolicyLimits
+from .meeting_notes import meeting_filename, slugify_topic
 
 __all__ = [
     "estimate_messages_tokens",
@@ -42,4 +43,6 @@ __all__ = [
     "load_lsp_tools",
     "UsageTracker",
     "PolicyLimits",
+    "meeting_filename",
+    "slugify_topic",
 ]
