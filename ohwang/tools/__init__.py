@@ -22,6 +22,7 @@ def default_tools(
     skill_loader=None,
     task_store=None,
     hooks=None,
+    shell_output_callback=None,
 ) -> ToolRegistry:
     """Build a registry with the core coding tools + extensions.
 
@@ -40,6 +41,8 @@ def default_tools(
       memory_store    — enables memory_read/memory_write tools
       skill_loader    — enables the skill tool
       task_store      — enables task_create/get/update/list/stop/output tools
+      shell_output_callback — callable(name, text) for live bash/powershell
+        output forwarding (interactive terminals only)
     """
     from .bash import BashTool
     from .file_edit import FileEditTool
@@ -63,14 +66,14 @@ def default_tools(
 
     registry = ToolRegistry()
     for tool in (
-        BashTool(),
+        BashTool(output_callback=shell_output_callback),
         FileReadTool(),
         FileWriteTool(),
         FileEditTool(),
         GrepTool(),
         GlobTool(),
         WebFetchTool(),
-        PowerShellTool(),
+        PowerShellTool(output_callback=shell_output_callback),
         SleepTool(),
     ):
         registry.register(tool)

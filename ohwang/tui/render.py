@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 
 from rich.console import Console
@@ -66,6 +67,10 @@ def read_stdin_line(prompt: str = "") -> str:
 
 
 class Renderer:
+    # Per-line truncation for live tool output so a chatty command cannot flood
+    # the terminal with a single giant line.
+    _OUT_LINE_LIMIT = 200
+
     def __init__(self) -> None:
         setup_utf8()
         self.console = Console()
@@ -73,6 +78,10 @@ class Renderer:
         self._flush_at = 128
         self._flush_every = 0.05
         self._last_flush = time.time()
+        # Guards tool_output/progress: called from parallel sub-agent worker
+        # threads while the REPL thread may also be writing.
+        self._out_lock = threading.Lock()
+        self._out_partial: dict[str, str] = {}
 
     def _flush(self) -> None:
         if self._buffer:
@@ -112,6 +121,40 @@ class Renderer:
         mark = "FAIL" if is_error else "OK"
         color = "red" if is_error else "green"
         self.console.print(f"  [{color}]{mark} {name}[/{color}]", highlight=False)
+
+    def tool_output(self, stream: str, text: str) -> None:
+        """Live-stream a chunk of tool stdout/stderr, one '│ ' line at a time.
+
+        Called from sub-agent worker threads as well as the REPL thread, so
+        every write happens under _out_lock. Partial lines are buffered per
+        stream until a newline (or an explicit drain at end of stream) flushes
+        them, keeping the terminal readable during long commands.
+        """
+        with self._out_lock:
+            if not text:
+                # End-of-stream signal: flush any buffered partial line.
+                pending = self._out_partial.pop(stream, None)
+                if pending:
+                    clipped = pending[: self._OUT_LINE_LIMIT]
+                    self.console.print(f"  │ {escape(clipped)}", highlight=False)
+                self._flush()
+                return
+            pending = self._out_partial.get(stream, "") + text
+            lines = pending.split("\n")
+            self._out_partial[stream] = lines.pop()
+            for line in lines:
+                if not line:
+                    continue
+                clipped = line[: self._OUT_LINE_LIMIT]
+                self.console.print(f"  │ {escape(clipped)}", highlight=False)
+            if not self._out_partial[stream]:
+                self._out_partial.pop(stream, None)
+        self._flush()
+
+    def progress(self, message: str) -> None:
+        """A dim one-line stage indicator (e.g. '— turn 3 · context 12 msgs —')."""
+        with self._out_lock:
+            self.console.print(f"[dim]{escape(message)}[/dim]", highlight=False)
 
     def end_turn(self) -> None:
         self._flush()

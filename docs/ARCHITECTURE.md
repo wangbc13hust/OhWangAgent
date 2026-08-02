@@ -1,6 +1,6 @@
 # OhWangAgent 架构文档
 
-> 版本：v0.3.0 · 对应代码提交 `a6229c5`（2026-08-02 第二批能力补齐批次：并行子 agent / tiktoken 精确计数 / Hooks 事件扩展见 §3.1/3.5；第一批 Git 上下文注入 / 危险命令模式检测 / /cost 见 §3.5/3.6/3.8）· 549 测试全绿
+> 版本：v0.3.0 · 对应代码提交 `2714353`（2026-08-02 第三批长任务运行反馈批次：bash/powershell 实时输出 / 子 agent 进度 / 每轮阶段指示见 §3.3/3.7/3.8；第二批并行子 agent / tiktoken 精确计数 / Hooks 事件扩展见 §3.1/3.5；第一批 Git 上下文注入 / 危险命令模式检测 / /cost 见 §3.5/3.6/3.8）· 559 测试全绿
 > （覆盖率 91%，实测命令：`coverage run --source=ohwang -m pytest` + `coverage report --omit="ohwang/tui/widgets/*"`）
 >
 > 定位：交互式 CLI **办公 agent** —— 文档撰写、会议纪要、资料检索、任务管理、
@@ -207,6 +207,18 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 | `verify_plan_execution` | 计划执行后按步校验（done/partial/missed + evidence），有 missed 置 error | allow |
 | `send_user_file` | 交付文件给用户在终端展示，内容**不进模型上下文** | allow |
 
+`bash`/`powershell` 走 `tools/shell_output.py` 单一执行路径：
+- `stream_command(cmd, *, shell, timeout, cwd, on_chunk)` —— `Popen` + stdout/stderr
+  各 1 个 reader 线程，原始字节累积供最终结果（复用 `decode_output()`，与旧
+  `capture_output=True` **逐字节一致**），增量 UTF-8 解码经 `on_chunk(name, text)`
+  实时回调（端流空信号让渲染器冲刷 partial 行）；`proc.wait(timeout)` 超时 →
+  `kill()` + join 线程。
+- `command_result(stdout, stderr, returncode, timed_out)` 组装不变（`--- stderr ---`
+  合并 / `[exit code N]` 头 / `Command timed out after Ns.`）。
+- 两工具 `__init__(output_callback=None)` 可选挂实时回显，经
+  `default_tools(shell_output_callback=...)` 装配，TTY 下 `BashTool`/`PowerShellTool`
+  共享同一回调。
+
 ### 3.4 权限系统（`ohwang/permissions.py` + `modes.py`）
 
 - 四种模式：`DEFAULT`（按 default_permission + ask 回调）、`PLAN`（只读，
@@ -267,6 +279,10 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 ### 3.7 渲染与编码（`ohwang/tui/render.py`）
 
 - `Renderer` 基于 Rich：流式文本、工具调用高亮、ask 交互。
+- **实时反馈通道（第三批）**：`tool_output(stream, text)` 以 `│ ` 前缀按行打印
+  bash/powershell 实时输出（rich escape + 单行 ≤200 字符截断；partial 行按流缓冲，
+  端流空信号冲刷）；`progress(message)` dim 一行阶段指示。`_out_lock` 保护
+  `tool_output`/`progress`——并行子 agent 的 worker 线程与 REPL 前台并发打印安全。
 - `setup_utf8()`：Windows 下 `SetConsoleOutputCP(65001)` + stdout/stderr
   强制 UTF-8，解决 GBK 控制台中文乱码；管道输入 `read_stdin_line` 字节级
   UTF-8/GBK 容错。
@@ -288,6 +304,12 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   Compactor → SessionStore → HookManager/PolicyLimits → `agent = Agent(...)`。
 - 子 agent（`_agent_factory`）使用独立 AUTO `PermissionManager`，继承主 agent
   的 policy/compactor/usage/hooks，防子 agent 篡改主权限状态。
+- **TTY 实时反馈（第三批）**：`live = sys.stdout.isatty()` 门控全部实时通道——
+  `default_tools(shell_output_callback=renderer.tool_output if live else None)`
+  （主 agent 与子 agent factory 均挂）；`live` 时注册 `subagent_start/stop` hooks
+  打印 `▸ sub-agent "desc" 运行中…` / `✓ 完成`（失败 `✗`）；`_run_once`/`_run_locked`
+  传 `on_turn → renderer.progress("— turn N · context M msgs —")`。非交互/管道/CI
+  全部静默，不污染 `| tail` 等脚本场景。
 - `_suggest_prompts()`：无历史时基于 todo/文件/记忆/迭代数给 3 条规则式
   启动建议（零 API 调用）。
 
@@ -326,7 +348,7 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 
 ---
 
-## 6. 测试架构（`tests/`，53 个文件 / 549 个用例，覆盖率 91%）
+## 6. 测试架构（`tests/`，53 个文件 / 559 个用例，覆盖率 91%）
 
 - `helpers.py`：`ScriptedProvider`（重放事件序列）、`MockSearchProvider`、
   `build_agent()`——无网络、无真实模型的集成测试基座。
@@ -349,7 +371,10 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   第二批能力补齐：`test_agent_tool.py` 追加并行 tasks 按序汇总/失败隔离、
   `test_hooks.py` 追加新事件 emit/kwargs/异常吞没/Agent.run 与 AgentTool 触发、
   `test_tokens.py` 重写（tiktoken 精确 + 启发式回退 + 消息 overhead +
-  `should_compact` model 透传）。
+  `should_compact` model 透传）；第三批长任务反馈：`test_bash.py`/`test_powershell.py`
+  追加 `stream_command` 实时分块/超时 kill/`output_callback` 冒烟，`test_tui.py`
+  追加 `tool_output` 前缀 escape/长行截断/partial 缓冲/端流冲刷 + `progress` 一行，
+  `test_agent_loop.py` 追加 `agent.run(on_turn=...)` 每轮递增回调。
 - 覆盖率 91%（`coverage run --source=ohwang -m pytest` 后
   `coverage report --omit="ohwang/tui/widgets/*"` 实测；按模块补齐：
   `test_providers.py`、`test_mcp.py`、`test_browser.py`、`test_lsp.py`、

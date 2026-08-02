@@ -198,6 +198,44 @@ def test_end_turn_flushes_pending(monkeypatch):
     assert "pending" in "".join(out)
 
 
+def test_tool_output_prefixes_and_escapes():
+    r = _make_renderer()
+    r.tool_output("stdout", "[bold]x[/bold]\n")
+    text = r.console.export_text()
+    assert "│" in text  # the '│ ' live-output prefix
+    assert "\\[bold]" in text  # markup escaped so it renders literally
+
+
+def test_tool_output_truncates_long_lines():
+    r = _make_renderer()
+    r.tool_output("stdout", "x" * 500 + "\n")
+    for line in r.console.export_text().splitlines():
+        if "│" in line:
+            assert len(line) <= len("  │ ") + r._OUT_LINE_LIMIT
+
+
+def test_tool_output_buffers_partial_line():
+    r = _make_renderer()
+    r.tool_output("stdout", "par")
+    assert r.console.export_text() == ""  # no newline yet, nothing printed
+    r.tool_output("stdout", "tial\n")
+    assert "partial" in r.console.export_text()
+
+
+def test_tool_output_flushes_on_empty_signal():
+    r = _make_renderer()
+    r.tool_output("stdout", "no-newline")
+    assert r.console.export_text() == ""
+    r.tool_output("stdout", "")  # end-of-stream signal from stream_command
+    assert "no-newline" in r.console.export_text()
+
+
+def test_progress_prints_dim_line():
+    r = _make_renderer()
+    r.progress("— turn 2 · context 5 msgs —")
+    assert "turn 2" in r.console.export_text()
+
+
 class _Capture:
     def __init__(self, sink):
         self._sink = sink

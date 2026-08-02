@@ -106,6 +106,7 @@ class Agent:
         on_tool_call: Optional[Callable[[dict], None]] = None,
         on_tool_result: Optional[Callable[[str, bool], None]] = None,
         on_compact: Optional[Callable[[int, int], None]] = None,
+        on_turn: Optional[Callable[[int, int], None]] = None,
         max_iterations: int = 50,
     ) -> str:
         self.messages.append(
@@ -118,6 +119,13 @@ class Agent:
         final_text = ""
         for _ in range(max_iterations):
             self.iterations += 1
+            if on_turn is not None:
+                try:
+                    on_turn(self.iterations, len(self.messages))
+                except Exception as exc:
+                    sys.stderr.write(
+                        f"[renderer] on_turn error: {type(exc).__name__}: {exc}\n"
+                    )
 
             # Trim oversized tool results every turn so a giant file read or
             # command dump cannot silently bloat the context (microCompact).

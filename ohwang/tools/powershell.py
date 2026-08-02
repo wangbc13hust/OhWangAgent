@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
+from typing import Callable, Optional
 
 from .base import BaseTool, ToolResult
-from .shell_output import command_result, decode_output
+from .shell_output import command_result, stream_command
 
 
 class PowerShellTool(BaseTool):
@@ -31,6 +31,14 @@ class PowerShellTool(BaseTool):
     }
     default_permission = "ask"
 
+    def __init__(
+        self,
+        output_callback: Optional[Callable[[str, str], None]] = None,
+    ) -> None:
+        # Live stdout/stderr forwarding (name, text) for long-running commands;
+        # the ToolResult content stays identical whether or not it is set.
+        self._output_callback = output_callback
+
     def execute(self, input: dict) -> ToolResult:
         command = input["command"]
         timeout = input.get("timeout", 120)
@@ -45,18 +53,15 @@ class PowerShellTool(BaseTool):
             "-Command",
             command,
         ]
-        try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=timeout,
-                cwd=os.getcwd(),
-            )
-        except subprocess.TimeoutExpired:
-            return command_result("", "", 0, timed_out=True, timeout=timeout)
-
-        return command_result(
-            decode_output(proc.stdout or b""),
-            decode_output(proc.stderr or b""),
-            proc.returncode,
+        stdout, stderr, returncode, timed_out = stream_command(
+            cmd,
+            shell=False,
+            timeout=timeout,
+            cwd=os.getcwd(),
+            on_chunk=(lambda s, t: self._output_callback(s, t))
+            if self._output_callback is not None
+            else None,
         )
+        if timed_out:
+            return command_result("", "", 0, timed_out=True, timeout=timeout)
+        return command_result(stdout, stderr, returncode)

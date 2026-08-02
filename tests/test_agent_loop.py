@@ -72,6 +72,25 @@ def test_agent_loop():
     print("PASS: agent loop ran 2 iterations, executed file_read, fed result back.")
 
 
+def test_run_reports_turn_progress():
+    workdir = tempfile.mkdtemp()
+    os.chdir(workdir)
+    with open("_mock.txt", "w", encoding="utf-8") as f:
+        f.write("content\n")
+
+    config = Config(workdir=workdir, auto_approve=True).resolve()
+    provider = MockProvider()  # 2 iterations: tool_use, then final text
+    agent = Agent(
+        provider, default_tools(), PermissionManager(auto_approve=True),
+        config, build_system_prompt(workdir),
+    )
+    turns: list[tuple[int, int]] = []
+    agent.run("read _mock.txt", on_turn=lambda it, m: turns.append((it, m)))
+    # Called once per iteration at the loop top; message count grows by the
+    # assistant + tool_result blocks appended after turn 1 (1 -> 3).
+    assert turns == [(1, 1), (2, 3)]
+
+
 def test_effective_system_injects_memory_context():
     from ohwang.services.memory import MemoryStore
 

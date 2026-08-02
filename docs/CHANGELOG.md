@@ -1,11 +1,37 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497 → 515 → 517 → 533 → 549（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497 → 515 → 517 → 533 → 549 → 559（全绿）。
 
 ---
 
 ## 2026-08-02
+
+### 第三批：长任务运行反馈（实时工具输出 + 阶段进度指示）
+
+解决「任务执行时间长，不知道执行到什么阶段」：此前 bash/powershell 用
+`subprocess.run(capture_output=True)` 全量缓冲，长命令期间屏幕静止；子 agent 执行
+零提示；无轮次/进度锚点。本批落地三项，均**仅交互 TTY 生效**，管道/CI 自动静默：
+
+- **bash/powershell 实时输出流**：新 `tools/shell_output.py::stream_command`
+  （`Popen` + stdout/stderr 各 1 个 reader 线程 + 增量 UTF-8 解码 + `on_chunk` 实时回调）。
+  原始字节累积走既有 `decode_output()`，最终 `(stdout, stderr, returncode, timed_out)`
+  与旧 `capture_output=True` 路径**逐字节一致**（超时/`stderr` 合并/`[exit code N]` 文案
+  不变，既有断言零改动）。`BashTool`/`PowerShellTool` 新增可选 `output_callback`；
+  `default_tools(..., shell_output_callback=...)` 装配；渲染器 `tool_output(stream, text)`
+  `│ ` 前缀 + rich escape + 每行 ≤200 字符截断 + partial 行缓冲（端流空信号冲刷），
+  `_out_lock` 保证并行子 agent worker 线程打印安全。
+- **子 agent 进度行**：复用第二批 `subagent_start/stop` hooks，TTY 下打印
+  `▸ sub-agent "desc" 运行中…` / `✓ ... 完成`（失败 `✗ ...`）。
+- **每轮阶段指示**：`Agent.run(..., on_turn: Callable[[int, int], None] | None = None)`
+  每轮循环开头回调 `(iterations, len(messages))`；cli 传
+  `on_turn → renderer.progress("— turn N · context M msgs —")`。默认 None，向后兼容。
+
+### 测试
+
+559 个测试全绿（本轮 +10：stream_command 实时分块/超时 kill、BashTool 回调冒烟 3；
+PowerShell 回调冒烟 1；tool_output 前缀 escape/长行截断/partial 缓冲/端流冲刷、
+progress 一行 5；agent.run on_turn 递增轮次 1）。
 
 ### 第二批能力补齐（并行子 agent / 精确 token 计数 / Hooks 事件扩展）
 

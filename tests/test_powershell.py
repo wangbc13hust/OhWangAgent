@@ -34,3 +34,12 @@ def test_execute_error_reports_nonzero():
     tool = PowerShellTool()
     result = tool.execute({"command": "Write-Error 'boom'"})
     assert result.is_error
+
+
+def test_execute_output_callback_streams():
+    chunks: list[tuple[str, str]] = []
+    tool = PowerShellTool(output_callback=lambda s, t: chunks.append((s, t)))
+    result = tool.execute({"command": "Write-Output 'hello cb'"})
+    assert not result.is_error
+    assert "hello cb" in result.content
+    assert any("hello cb" in t for _, t in chunks if t)

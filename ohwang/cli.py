@@ -5,6 +5,7 @@ import os
 import shlex
 import sys
 from threading import Lock
+from typing import Callable
 
 from .agent import Agent
 from .config import PROVIDER_PRESETS, Config
@@ -100,6 +101,27 @@ def _warn_noninteractive_approval(args: argparse.Namespace) -> None:
             pass
 
 
+def _is_tty() -> bool:
+    """True when stdout is an interactive terminal.
+
+    Gates the live-feedback features (real-time tool output, sub-agent progress
+    lines, per-turn stage indicators) so piped/CI runs stay clean.
+    """
+    try:
+        return bool(sys.stdout.isatty())
+    except Exception:
+        return False
+
+
+def _stage_progress(renderer: Renderer) -> Callable[[int, int], None]:
+    """Return an `on_turn` callback rendering a dim per-turn stage indicator."""
+
+    def _on_turn(iteration: int, n_messages: int) -> None:
+        renderer.progress(f"— turn {iteration} · context {n_messages} msgs —")
+
+    return _on_turn
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="ohwang",
@@ -174,6 +196,7 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
 
     provider = create_provider(config, base_url=args.base_url)
     renderer = Renderer()
+    live = _is_tty()
     flags = FeatureFlags(config.workdir)
 
     if config.plan:
@@ -230,6 +253,7 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
                     on_compact=lambda b, a: renderer.warn(
                         f"Context compacted: {b} -> {a} messages."
                     ),
+                    on_turn=_stage_progress(renderer) if live else None,
                 )
             except Exception as exc:
                 renderer.warn(f"Background task error: {exc}")
@@ -251,6 +275,7 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
                 memory_store=memory_store,
                 skill_loader=skill_loader,
                 task_store=task_store,
+                shell_output_callback=(renderer.tool_output if live else None),
             ),
             sub_permissions,
             config,
@@ -268,6 +293,25 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
         hooks.register("pre_tool_use", dangerous_command_hook)
     loaded_hooks = hooks.load_json()
 
+    if live:
+        # Sub-agent progress lines. Fired from AgentTool (parallel tasks run in
+        # worker threads), so these handlers go through the thread-safe renderer.
+        hooks.register(
+            "subagent_start",
+            lambda **kw: renderer.progress(
+                f'▸ sub-agent "{kw.get("description", "subtask")}" 运行中…'
+            ),
+        )
+
+        def _subagent_stop(**kw):
+            desc = kw.get("description", "subtask")
+            if kw.get("error"):
+                renderer.progress(f'✗ sub-agent "{desc}" 失败')
+            else:
+                renderer.progress(f'✓ sub-agent "{desc}" 完成')
+
+        hooks.register("subagent_stop", _subagent_stop)
+
     tools = default_tools(
         todo_store=todo_store,
         permissions=permissions,
@@ -283,6 +327,7 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
         skill_loader=skill_loader,
         task_store=task_store,
         hooks=hooks,
+        shell_output_callback=(renderer.tool_output if live else None),
     )
 
     if not args.no_mcp:
@@ -365,6 +410,7 @@ def _run_once(
                 on_compact=lambda b, a: renderer.warn(
                     f"Context compacted: {b} -> {a} messages."
                 ),
+                on_turn=_stage_progress(renderer) if _is_tty() else None,
             )
         except Exception as exc:
             renderer.warn(f"Error: {exc}")
