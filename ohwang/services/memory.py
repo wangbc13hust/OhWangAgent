@@ -145,15 +145,17 @@ class MemoryStore:
         return entry["value"] if entry else None
 
     def search_facts(self, query: str, scope: Optional[str] = None) -> list[dict]:
-        """Simple keyword search over fact keys, values, and tags.
+        """Relevance-scored search over fact keys, values, and tags.
 
-        `scope=None` merges both layers (project first, then user). Results
-        include the fact's `type`.
+        `scope=None` merges both layers (project first, then user). Query tokens
+        (whitespace-separated words, plus ASCII/underscore sub-tokens) match
+        per-field with key > tags > value weighting, so a multi-word query like
+        "key1 key2" hits a fact whose key is "key1". Results include the fact's
+        `type`, best matches first.
         """
         if scope == "all":
             scope = None
-        query_lower = query.lower()
-        results: list[dict] = []
+        scored: list[tuple] = []
         for scope_name in ("project", "user"):
             if scope is not None and scope != scope_name:
                 continue
@@ -161,17 +163,29 @@ class MemoryStore:
             for key, entry in facts.items():
                 value = entry.get("value", "")
                 tags = entry.get("tags", [])
-                searchable = f"{key} {value} {' '.join(tags)}".lower()
-                if query_lower in searchable:
-                    results.append(
-                        {
-                            "key": key,
-                            "value": value,
-                            "tags": tags,
-                            "type": entry.get("type", "project"),
-                        }
+                score = self._score_fact(
+                    query,
+                    str(key),
+                    str(value),
+                    " ".join(str(t) for t in tags),
+                )
+                if score > 0:
+                    # `len(scored)` keeps insertion order (project facts first)
+                    # as the tiebreak among equal scores.
+                    scored.append(
+                        (
+                            score,
+                            len(scored),
+                            {
+                                "key": key,
+                                "value": value,
+                                "tags": tags,
+                                "type": entry.get("type", "project"),
+                            },
+                        )
                     )
-        return results
+        scored.sort(key=lambda t: (-t[0], t[1]))
+        return [f for _, _, f in scored]
 
     def list_facts(self, scope: Optional[str] = None) -> list[dict]:
         if scope == "all":
@@ -265,36 +279,54 @@ class MemoryStore:
         tags_str = f" [{', '.join(f['tags'])}]" if f["tags"] else ""
         return f"- **{f['key']}**{tags_str}: {f['value']}"
 
-    def _rank_facts(self, query: str, facts: list[dict]) -> list[dict]:
-        """Deterministic relevance scoring — no LLM, no side queries.
+    @staticmethod
+    def _score_fact(query: str, key: str, value: str, tags: str) -> float:
+        """Relevance score of one fact against a query (higher = better).
 
-        CJK queries rely on whole-string substring hits on key/tags/value;
-        ASCII/underscore tokens get per-field weights (key > tags > value).
-        Ties break by insertion order (= recency).
+        Whole-query substring hits carry the largest weight, preserving exact
+        phrase and CJK whole-string matching. Then per-token hits — whitespace
+        words (so "key1 key2" reaches a fact keyed "key1") and ASCII/underscore
+        sub-tokens (so "cli.py" reaches "cli_runner") — apply field weights
+        key > tags > value. Returns 0 when nothing hits.
         """
         q = query.strip().lower()
         if not q:
-            return []
-        tokens = {t for t in re.findall(r"[0-9a-zA-Z_]+", q) if t}
+            return 0.0
+        tokens = {t for t in q.split() if t} | {
+            t for t in re.findall(r"[0-9a-zA-Z_]+", q) if t
+        }
+        score = 0.0
+        if q in key:
+            score += 8
+        if q in tags:
+            score += 5
+        if q in value:
+            score += 3
+        for tok in tokens:
+            if tok in key:
+                score += 4
+            elif tok in tags:
+                score += 2
+            elif tok in value:
+                score += 1
+        return score
+
+    def _rank_facts(self, query: str, facts: list[dict]) -> list[dict]:
+        """Deterministic relevance ranking — no LLM, no side queries.
+
+        Delegates to the shared tokenized scorer (whole-phrase + per-token hits,
+        key > tags > value), so the context-injection path benefits from the
+        same multi-word/CJK matching as `search_facts`. Ties break by insertion
+        order (= recency); results capped at `_max_ranked_facts`.
+        """
         ranked: list[tuple] = []
         for idx, fact in enumerate(facts):
-            key = str(fact.get("key", "")).lower()
-            value = str(fact.get("value", "")).lower()
-            tags = " ".join(str(t) for t in fact.get("tags", [])).lower()
-            score = 0.0
-            if q in key:
-                score += 6
-            if q in tags:
-                score += 4
-            if q in value:
-                score += 2
-            for tok in tokens:
-                if tok in key:
-                    score += 3
-                elif tok in tags:
-                    score += 2
-                elif tok in value:
-                    score += 1
+            score = self._score_fact(
+                query,
+                str(fact.get("key", "")),
+                str(fact.get("value", "")),
+                " ".join(str(t) for t in fact.get("tags", [])),
+            )
             if score > 0:
                 ranked.append((score, idx, fact))
         ranked.sort(key=lambda t: (-t[0], -t[1]))

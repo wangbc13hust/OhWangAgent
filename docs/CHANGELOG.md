@@ -1,11 +1,31 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497 → 515 → 517 → 533 → 549 → 559 → 560（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497 → 515 → 517 → 533 → 549 → 559 → 560 → 564（全绿）。
 
 ---
 
 ## 2026-08-02
+
+### 记忆检索优化（search_facts token 化相关性打分）
+
+修复实测暴露的 `memory_read` 多词查询命中弱（原 ARCHITECTURE §7 known-gap：
+`"key1 key2"` 语义过滤未命中刚写入的 fact，需 `scope=all` 全量读取兜底）：
+
+- **统一打分器**：`MemoryStore` 新增 `_score_fact` 静态方法——整句子串命中
+  权重最大（key+8 / tags+5 / value+3，保留精确短语与 CJK 整串匹配），再按
+  token 命中加权（key+4 / tags+2 / value+1）；token 集 = 空白分词 ∪
+  ASCII/下划线子词（`q.split()` ∪ `re.findall(r"[0-9a-zA-Z_]+", q)`），使
+  `"key1 key2"` 能命中 key=`key1` 的 fact、`"cli.py"` 能命中 `cli_runner`。
+- **`search_facts` 重写**：从整串子串 contains 改为 token 化打分排序，按
+  `(-score, 插入序)` 稳定排序返回；保持 `{key,value,tags,type}` 结果形状与
+  `scope="all"→None` 归一化不变。`memory_read` 工具路径直接受益。
+- **`_rank_facts` 重构**：委托 `_score_fact`（保留 `_max_ranked_facts` 上限），
+  上下文注入路径同步获得多词/CJK 命中，两路径打分口径一致。
+
+### 测试
+
+564 个测试全绿（本轮 +4：多词 token 命中 / 下划线子词 / CJK 多词 / key 优先于 tag）。
 
 ### 工程债务收尾（PROJECT_REVIEW §3.1/§4/§5 落地）
 

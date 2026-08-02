@@ -240,7 +240,7 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 | `window` | `effective_context_window(config)`：解析有效上下文窗口，优先级 env `OHWANG_MAX_CONTEXT_TOKENS` > config > 默认 128K；压缩阈值由此派生 | — |
 | `tokens` | token 计数：tiktoken 精确分词（已知 OpenAI 模型走 `encoding_for_model`，未知/国内模型回退 `cl100k_base`；模块级编码缓存 + 锁）；tiktoken 缺失 / BPE 下载失败自动回退启发式（拉丁 ~4 字符/token、CJK ~1 字符/token + 每消息/块开销），离线不降级；`estimate_*` 支持 `model=` 透传，供压缩阈值与预算判断 | — |
 | `git_context` | 采集当前分支 / 最近 5 条提交 / 工作区状态，注入 `Agent._effective_system()`（非仓库或失败静默返回空串；TTL 5s 缓存防每轮重建重复 spawn git 子进程） | — |
-| `MemoryStore` | 分层持久记忆：项目层 `{workdir}` + 全局层 `~/.ohwang`（懒创建）；事实带 `type`（user/feedback/project/reference）；`render_context(query)` 空 query 注入每层最新 ≤30 条，带 query 按确定性相关性打分取 top-10（修复"注入最新 30 条"与双重头） | `CLAUDE.md`/`AGENTS.md` + `.ohwang/memory/facts.json`（+ `~/.ohwang/memory/facts.json`） |
+| `MemoryStore` | 分层持久记忆：项目层 `{workdir}` + 全局层 `~/.ohwang`（懒创建）；事实带 `type`（user/feedback/project/reference）；`render_context(query)` 空 query 注入每层最新 ≤30 条，带 query 按确定性相关性打分取 top-10（修复"注入最新 30 条"与双重头）；`search_facts` 与 `_rank_facts` 共享 `_score_fact` token 化打分（整句子串 + 空白词/ASCII 下划线子词，key>tags>value 加权），`memory_read` 多词/CJK 查询由此命中 | `CLAUDE.md`/`AGENTS.md` + `.ohwang/memory/facts.json`（+ `~/.ohwang/memory/facts.json`） |
 | `MemoryExtractor` | 会话增长 ≥20 条时让模型提炼事实自动入库；提取提示强制 4 类型分类并排除单会话临时内容（会议记录/一次性数据图表）；`type=user` 自动路由到全局层；游标 `extract_cursor.json` 跨会话持久化防重复提取 | `.ohwang/memory/facts.json` + `extract_cursor.json` |
 | `HookManager` | 9 生命周期事件：pre/post_tool_use、notif、stop、user_prompt_submit、session_start/end、subagent_start/stop；通用 `emit(event, **kwargs)`（Python handler 异常吞掉、命令钩子照常执行），`notify()` 保留为 `emit("notif", ...)` 便捷封装 | `.ohwang/hooks.json` 命令钩子 |
 | `guards` | 内置安全守卫：pre_tool_use 规则阻断危险 shell 命令（`rm -rf /`、`git push --force`、磁盘格式化、fork bomb、系统关机等，词边界防误伤）；flag `dangerous_command_guard` 默认开启 | — |
@@ -412,10 +412,10 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 - Textual TUI（`tui/widgets/app.py`）为实验性，正式入口仍用 Rich REPL。
 - 主/子 agent 共享 Provider 对象，Provider 级 token 统计会混入子 agent 用量（有意为之：
   子 agent 成本计入当前会话；`_record_usage` 已加锁，并行写无竞态，见评审 §3.2）。
-- 白领一天工作流实测暴露项（2026-08-02，详见 CHANGELOG 该日章节）：`memory_read`
-  多词查询命中弱（`"key1 key2"` 语义过滤未命中刚写入的 fact，需 `scope=all` 全量读取
-  兜底）；`| tail` 管道缓冲下后台任务无进度反馈、易被误判卡死；`web_browser` 依赖
-  playwright（未安装时仅 web_search/web_fetch 可用）；Bash 分类器后端间歇性不可用
-  （`deepseek-v4-flash is temporarily unavailable`，等待+重试可恢复）。
+- 白领一天工作流实测暴露项（2026-08-02，详见 CHANGELOG 该日章节）：`| tail` 管道缓冲
+  下后台任务无进度反馈、易被误判卡死；`web_browser` 依赖 playwright（未安装时仅
+  web_search/web_fetch 可用）；Bash 分类器后端间歇性不可用（`deepseek-v4-flash is
+  temporarily unavailable`，等待+重试可恢复）。原 `memory_read` 多词查询命中弱已修复：
+  `search_facts` 改为与 `_rank_facts` 共享的 token 化相关性打分（见 §3 服务表）。
 - 路线图 P4（平台化：IDE bridge / swarm / OAuth / 遥测 / remote-server /
   NotebookEdit / 命令历史补全）待实现，详见 `docs/ROADMAP.md`。

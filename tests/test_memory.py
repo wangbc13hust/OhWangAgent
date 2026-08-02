@@ -32,6 +32,50 @@ def test_memory_search_by_tag():
     assert results[0]["key"] == "x"
 
 
+def test_memory_search_multiword_token_match():
+    # Regression: a multi-word query ("key1 key2") must hit facts whose key
+    # matches only part of it. Old whole-string substring matching returned
+    # nothing because "key1 key2" is not a substring of any single field.
+    d = tempfile.mkdtemp()
+    store = MemoryStore(d)
+    store.add_fact("key1", "first fact", tags=["alpha"])
+    store.add_fact("key2", "second fact", tags=["beta"])
+    results = store.search_facts("key1 key2")
+    assert len(results) == 2
+    assert {r["key"] for r in results} == {"key1", "key2"}
+
+
+def test_memory_search_underscore_subtoken():
+    # "cli.py" tokens reach a fact keyed "cli_runner" via the ASCII/underscore
+    # sub-token "cli".
+    d = tempfile.mkdtemp()
+    store = MemoryStore(d)
+    store.add_fact("cli_runner", "the agent entry point")
+    results = store.search_facts("cli.py")
+    assert len(results) == 1
+    assert results[0]["key"] == "cli_runner"
+
+
+def test_memory_search_cjk_multiword():
+    d = tempfile.mkdtemp()
+    store = MemoryStore(d)
+    store.add_fact("meeting_day", "周会每周三下午")
+    store.add_fact("other", "unrelated")
+    results = store.search_facts("周三 下午")
+    assert len(results) == 1
+    assert results[0]["key"] == "meeting_day"
+
+
+def test_memory_search_ranks_key_over_tag():
+    # key hits must rank above tag hits for the same query
+    d = tempfile.mkdtemp()
+    store = MemoryStore(d)
+    store.add_fact("build_cmd", "npm run build")
+    store.add_fact("deploy", "k8s rollout", tags=["build"])
+    results = store.search_facts("build")
+    assert results[0]["key"] == "build_cmd"
+
+
 def test_memory_delete():
     d = tempfile.mkdtemp()
     store = MemoryStore(d)
