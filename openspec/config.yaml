@@ -1,0 +1,41 @@
+schema: spec-driven
+
+# Project context
+# Shown to AI when creating artifacts.
+context: |
+  OhWangAgent — an interactive CLI office agent in Python (v0.3.0): documents,
+  meeting notes, research, task lists, and code editing, driven by an agentic
+  loop with a pluggable multi-provider layer (Anthropic + OpenAI-compatible).
+
+  Tech stack: Python 3.10+, Rich REPL, pytest (564 tests, 91% coverage).
+  No lint/type-check gate — passing tests is the bar.
+
+  Conventions:
+  - Tests green before commit: `.venv\Scripts\python.exe -m pytest -q`
+  - Commit to main with Chinese conventional-commit prefix (feat/fix/docs)
+  - CHANGELOG.md updated every batch; ARCHITECTURE.md on structural changes
+  - Runtime state under `.ohwang/`; docs under `docs/`
+
+  Read first: AGENTS.md, docs/ARCHITECTURE.md, docs/CHANGELOG.md.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
