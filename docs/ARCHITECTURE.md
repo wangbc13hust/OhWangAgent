@@ -1,6 +1,6 @@
 # OhWangAgent 架构文档
 
-> 版本：v0.3.0 · 对应代码提交 `8775ee3`（2026-08-02 实测修复批次见 §3.4/3.5/3.8）· 474 测试全绿
+> 版本：v0.3.0 · 对应代码提交 `f741a5e`（2026-08-02 白领工作流实测批次见 §3.4/3.5/3.8，flags 真值大小写修复见 CHANGELOG）· 517 测试全绿
 > （覆盖率 91%，实测命令：`coverage run --source=ohwang -m pytest` + `coverage report --omit="ohwang/tui/widgets/*"`）
 >
 > 定位：交互式 CLI **办公 agent** —— 文档撰写、会议纪要、资料检索、任务管理、
@@ -42,15 +42,17 @@ cli.main() ── build_agent() 装配 Agent/渲染器/服务/TaskStore/调度�
   │            （无历史时输出 _suggest_prompts() 规则式启动建议）
   ▼
 agent.run(prompt)
-  │  ① 追加 user 消息 → ② 需要时上下文压缩
-  │  ③ provider.chat() 产出事件流（text / tool_use），流式归账 token
-  │  ④ 收集 tool_use → 逐条 _run_tool()
+  │  ① 追加 user 消息 → ② microcompact() 裁剪超限 tool_result（>30K 字符）
+  │  ③ 需要时上下文压缩（阈值由窗口派生，熔断硬裁兜底）
+  │  ④ provider.chat() 产出事件流（text / tool_use），流式归账 token
+  │        └─ Reactive 压缩：API 抛 PTL 错误 → 当回合摘要旧消息后重试（至多一次）
+  │  ⑤ 收集 tool_use → 逐条 _run_tool()
   │        ├─ hooks.run_pre_tool   （可阻断/改写输入）
   │        ├─ permissions.can_run  （模式 + 规则）
   │        ├─ policy.check_tool    （调用上限）
   │        ├─ tool.execute(input)  （执行）
   │        └─ usage.record / hooks.run_post_tool
-  │  ⑤ tool_result 回灌为 user 消息 → 循环直到无 tool_use
+  │  ⑥ tool_result 回灌为 user 消息 → 循环直到无 tool_use
   ▼
 最终文本 → renderer 流式输出
   ▼
@@ -143,7 +145,8 @@ ohwang/
 2. 每回合先 `microcompact()` 裁剪超限（>30K 字符）tool_result 为
    `[Old tool result content cleared (was N chars)]`，防巨型工具输出拖垮上下文。
 3. 达到压缩阈值时用 `Compactor` 压缩历史；阈值默认由模型上下文窗口派生
-   （`window − 20K 输出余量 − 13K 缓冲`，下限 4K），`--compact-threshold` 显式值优先。
+   （`window − 20K 输出余量 − 13K 缓冲`，下限 4K），窗口缺省时回退
+   `DEFAULT_THRESHOLD_TOKENS=100_000`，`--compact-threshold` 显式值优先。
    摘要连续 3 次失败触发熔断 → 放弃摘要、硬裁旧消息（snip）。
 4. `provider.chat(system, messages, tools, max_tokens)` 产出事件流：
    - `text` → 追加到正文并流式渲染；
@@ -152,7 +155,7 @@ ohwang/
    旧消息后重试同一次 chat（至多一次，镜像 Claude Code withheld-413 路径）。
 5. 有 `tool_use` 则每条经 `_run_tool()` 执行（见下），结果组装为一条
    `user` 消息回灌；无 `tool_use` 即结束。
-5. `_run_tool()` 调用链：**hook(pre) → 权限 → policy → 执行 → 统计/后置钩子**，
+6. `_run_tool()` 调用链：**hook(pre) → 权限 → policy → 执行 → 统计/后置钩子**，
    工具抛异常兜底为 `is_error` 结果块而非让循环崩溃。
 
 状态：`agent.messages`（会话历史）、`agent.iterations`、`agent.usage`。
@@ -217,13 +220,17 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 
 | 服务 | 职责 | 数据 |
 | :--- | :--- | :--- |
+| `window` | `effective_context_window(config)`：解析有效上下文窗口，优先级 env `OHWANG_MAX_CONTEXT_TOKENS` > config > 默认 128K；压缩阈值由此派生 | — |
+| `tokens` | 本地 token 估算（拉丁 ~4 字符/token，CJK ~1 字符/token + 每消息/块开销），供压缩阈值与预算判断，非精确分词 | — |
 | `MemoryStore` | 分层持久记忆：项目层 `{workdir}` + 全局层 `~/.ohwang`（懒创建）；事实带 `type`（user/feedback/project/reference）；`render_context(query)` 空 query 注入每层最新 ≤30 条，带 query 按确定性相关性打分取 top-10（修复"注入最新 30 条"与双重头） | `CLAUDE.md`/`AGENTS.md` + `.ohwang/memory/facts.json`（+ `~/.ohwang/memory/facts.json`） |
 | `MemoryExtractor` | 会话增长 ≥20 条时让模型提炼事实自动入库；提取提示强制 4 类型分类并排除单会话临时内容（会议记录/一次性数据图表）；`type=user` 自动路由到全局层；游标 `extract_cursor.json` 跨会话持久化防重复提取 | `.ohwang/memory/facts.json` + `extract_cursor.json` |
 | `HookManager` | pre/post tool + notif 生命周期钩子 | `.ohwang/hooks.json` 命令钩子 |
-| `PolicyLimits` | 工具调用总量/单工具上限，防失控循环；总量默认 200，**被权限拒绝的调用也计入预算**（防拒绝后无限重试） | `.ohwang/policy.json` |
+| `PolicyLimits` | 工具调用总量/单工具上限，防失控循环；构造默认 200，`policy.json` 存在但缺 `max_tool_calls` 键时 `load()` 回退 **1000**（两路径默认值分歧，见 PROJECT_REVIEW）；**被权限拒绝的调用也计入预算**（防拒绝后无限重试） | `.ohwang/policy.json` |
 | `UsageTracker` | 工具调用统计（`/summary`、brief 工具） | 内存 |
 | `Compactor` | 上下文压缩：阈值由 `context_window` 派生（显式 `threshold_tokens` 优先）；熔断（连续 3 次摘要失败 → snip 硬裁）；`is_prompt_too_long_error` 识别 PTL；`microcompact` 裁剪超限工具结果 | 阈值派生自 `services/window.py` |
 | `SessionStore` | 会话保存/resume（`save` 可带 `summary`；`/save` 经 `SessionSummarizer` 蒸馏简报，`/resume` 注入为 `# Session Context` 块） | `.ohwang/sessions/*.json` |
+| `SessionSummarizer` | 会话摘要蒸馏：复用 `Compactor._serialize` 转录、截断 80K 字符，LLM 失败静默返回 `""` | — |
+| `settings` | `.ohwang/settings.json` 权限规则 CRUD（allow/ask/deny glob 列表，幂等追加，无内存缓存） | `.ohwang/settings.json` |
 | `Scheduler` | cron 调度，agent 空闲时可后台执行任务；**state_file 持久化，重启不丢** | `.ohwang/cron.json` |
 | `MCPClient` | 外部 MCP 服务器工具 | `.ohwang/mcp.json` |
 | `SearchProvider` | Tavily(有key) → Bing(默认,国内可达) → DDG 回退；不可达抛 `SearchError` | — |
@@ -231,15 +238,20 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 | `BrowserSession` | Playwright 浏览器 | — |
 | `LSPClient` | stdio JSON-RPC 诊断（pyright/pylsp/TS…），`load_lsp_tools()` 按 `.ohwang/lsp.json` 注册 `lsp_diagnose` | `.ohwang/lsp.json` |
 
+> 内部依赖仅两条边：`summarizer → compact → tokens`（其余模块互为叶节点，互不 import）；
+> services 对外被 `cli.py`/`agent.py`/`tools/*` 消费，见 §2 目录结构与 §3.8 装配。
+
 ### 3.6 配置与开关
 
 - `config.py::Config`：provider/model/api_key/max_tokens/工作目录/`context_window`/
   `compact_threshold` 等，`resolve()` 用环境变量补齐、并从 preset 填充 `context_window`
-  （zhipu/openai/deepseek 128K、anthropic 200K、kimi 8K、qwen 32K）；`--context-window`
+  （zhipu/openai/deepseek 128K、anthropic 200K、kimi 8_192、qwen 32K）；`--context-window`
   与 `OHWANG_MAX_CONTEXT_TOKENS` 可覆盖。
 - `flags.py::FeatureFlags`：三级覆盖 `OHWANG_FEATURE_<NAME>` env →
-  `.ohwang/flags.json` → 内置默认。默认开启 web_fetch/web_search/web_browser/
-  ask_user/agent_tool/mcp/skill/memory/todo/plan_mode/session/worktree/
+  `.ohwang/flags.json` → 内置默认。env 真值经 `_env_truthy()` 解析：`strip().lower()`
+  后 ∈ `("1","true","yes")` 即真（大小写不敏感，`TRUE`/`True`/`YES` 均生效，
+  `f741a5e` 修复前仅小写三值生效）。默认开启 web_fetch/web_search/web_browser/
+  ask_user/agent_tool/mcp/skill/memory/todo/plan_mode/compact/session/worktree/
   tool_search/proactive；默认关闭 lsp/plugin/coordinator/agent_swarms/
   workflow_scripts。
 - `settings.py`：`.ohwang/settings.json` 权限规则读写（`config` 工具可运行时改）。
@@ -263,9 +275,9 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   `agent` 装配完成后才调用。
 - 装配顺序：Config.resolve → create_provider → Renderer → FeatureFlags →
   PermissionManager（mode 由 `--plan`/`-y` 推导）→ TodoStore/TaskStore/Usage/
-  MemoryStore/MemoryExtractor → SkillLoader → system_prompt → Scheduler
-  （runner=`_run_locked`）→ `default_tools(...)` → MCP/LSP 扩展 → hooks/policy →
-  `agent = Agent(...)`。
+  MemoryStore/MemoryExtractor → SessionSummarizer → SkillLoader → system_prompt →
+  Scheduler（runner=`_run_locked`）→ `default_tools(...)` → MCP/LSP 扩展 →
+  Compactor → SessionStore → HookManager/PolicyLimits → `agent = Agent(...)`。
 - 子 agent（`_agent_factory`）使用独立 AUTO `PermissionManager`，继承主 agent
   的 policy/compactor/usage/hooks，防子 agent 篡改主权限状态。
 - `_suggest_prompts()`：无历史时基于 todo/文件/记忆/迭代数给 3 条规则式
@@ -284,7 +296,9 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 | `cron.json` | 定时任务持久化（重启不丢） |
 | `lsp.json` | LSP 服务器配置（command/args/servers） |
 | `memory/facts.json` | 自动/手动记忆事实 |
+| `memory/extract_cursor.json` | 记忆提取游标（跨会话防重复提取） |
 | `sessions/*.json` | 会话历史 |
+| `worktree.json` | WorktreeManager 自建工作树状态 |
 | `tasks/*.json` | Task v2 结构化任务对象（id/标题/描述/状态/父任务/输出/时间戳） |
 | `snips/*.txt` | snip 工具保存的输出片段 |
 | `skills/` | Skill 定义：`<name>/SKILL.md`（YAML frontmatter + markdown）或 `<name>.json` |
@@ -304,7 +318,7 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 
 ---
 
-## 6. 测试架构（`tests/`，46 个文件 / 474 个用例，覆盖率 91%）
+## 6. 测试架构（`tests/`，50 个文件 / 517 个用例，覆盖率 91%）
 
 - `helpers.py`：`ScriptedProvider`（重放事件序列）、`MockSearchProvider`、
   `build_agent()`——无网络、无真实模型的集成测试基座。
@@ -314,11 +328,15 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   policy/compactor/usage/hooks。
 - 覆盖：工具单元测试、provider 转换、权限/plan 模式、压缩、会话、记忆/记忆提取、
   hooks/policy/usage、调度、worktree、MCP、Skill/Plugin、办公场景
-  （`test_scenarios.py`）、P3 新工具、以及新增：`test_file_diff.py`、
+  （`test_scenarios.py`）、P3 新工具、以及：`test_file_diff.py`、
   `test_multi_edit.py`、`test_send_user_file.py`、`test_tasks.py`、
   `test_verify_plan.py`、`test_tui.py`、`test_fixes_review.py`（真实办公场景
   实测修复批次回归：workdir 规范化/权限硬边界/plan 退出批准/config 只读/
-  记忆阈值/非交互告警）。
+  记忆阈值/非交互告警）；上下文系统批次新增 `test_window.py`、
+  `test_microcompact.py`（窗口派生阈值/熔断/PTL 匹配/microcompact）；
+  分层记忆批次新增 `test_memory_layers.py`、`test_memory_extract.py`、
+  `test_session.py`；`test_flags.py` 追加 2 个 env 真值大小写用例
+  （`f741a5e` 修复回归）。
 - 覆盖率 91%（`coverage run --source=ohwang -m pytest` 后
   `coverage report --omit="ohwang/tui/widgets/*"` 实测；按模块补齐：
   `test_providers.py`、`test_mcp.py`、`test_browser.py`、`test_lsp.py`、
@@ -349,5 +367,10 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   （引用后文才定义的 `agent`/`compactor`/`hooks`/`policy`），靠晚绑定可运行，
   但重排装配顺序会引入启动期风险（见 `docs/PROJECT_REVIEW.md` §3.1，建议显式注入）。
 - 主/子 agent 共享 Provider 对象，Provider 级 token 统计会混入（见评审 §3.2）。
+- 白领一天工作流实测暴露项（2026-08-02，详见 CHANGELOG 该日章节）：`memory_read`
+  多词查询命中弱（`"key1 key2"` 语义过滤未命中刚写入的 fact，需 `scope=all` 全量读取
+  兜底）；`| tail` 管道缓冲下后台任务无进度反馈、易被误判卡死；`web_browser` 依赖
+  playwright（未安装时仅 web_search/web_fetch 可用）；Bash 分类器后端间歇性不可用
+  （`deepseek-v4-flash is temporarily unavailable`，等待+重试可恢复）。
 - 路线图 P4（平台化：IDE bridge / swarm / OAuth / 遥测 / remote-server /
   NotebookEdit / 命令历史补全）待实现，详见 `docs/ROADMAP.md`。
