@@ -7,6 +7,7 @@ from .config import Config
 from .permissions import PermissionManager
 from .providers.base import BaseProvider
 from .services.compact import Compactor, is_prompt_too_long_error, microcompact
+from .services.git_context import git_context
 from .tools.base import ToolResult
 from .tools.registry import ToolRegistry
 from .tools.todo import TodoStore
@@ -58,6 +59,9 @@ class Agent:
         if self._system_cache is not None:
             return self._system_cache
         parts = [self.system]
+        git_ctx = git_context(self.config.workdir)
+        if git_ctx:
+            parts.append(git_ctx)
         if self.todo_store is not None:
             parts.append(self.todo_store.render())
         if self.memory_store is not None:

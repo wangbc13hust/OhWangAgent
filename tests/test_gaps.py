@@ -843,9 +843,10 @@ def test_agent_system_cached_and_invalidated():
     )
     s1 = agent._effective_system()
     s2 = agent._effective_system()
-    assert s1 == s2 == "SYSTEM_BASE"
+    assert "SYSTEM_BASE" in s1
+    assert s1 == s2
     agent._invalidate_system()
-    assert agent._effective_system() == "SYSTEM_BASE"
+    assert "SYSTEM_BASE" in agent._effective_system()
 
 
 def test_memory_render_context_cached(tmp_path):

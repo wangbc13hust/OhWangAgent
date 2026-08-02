@@ -23,6 +23,8 @@ from .services import (
     SessionSummarizer,
     UsageTracker,
 )
+from .services.cost import calculate_cost, format_cost
+from .services.guards import dangerous_command_hook
 from .services.scheduler import Scheduler
 from .services.settings import load_settings
 from .services.window import effective_context_window
@@ -304,6 +306,8 @@ def build_agent(args: argparse.Namespace, run_lock: Lock):
     session_store = SessionStore(config.workdir)
 
     hooks = HookManager(config.workdir)
+    if flags.is_enabled("dangerous_command_guard"):
+        hooks.register("pre_tool_use", dangerous_command_hook)
     loaded_hooks = hooks.load_json()
     policy = PolicyLimits.load(config.workdir)
     if loaded_hooks:
@@ -454,6 +458,28 @@ def _cmd_save(agent, renderer, session_store, session_summarizer=None):
     renderer.info(f"Saved session {sid} ({len(agent.messages)} messages).")
 
 
+def _cmd_cost(agent, renderer, config):
+    try:
+        tok = agent.provider.usage_report()
+    except Exception:
+        tok = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
+    cost = calculate_cost(
+        tok["prompt_tokens"],
+        tok["completion_tokens"],
+        config.provider,
+        agent.provider.model,
+    )
+    renderer.info(f"Cost: {format_cost(cost)}")
+    renderer.info(
+        f"Tokens: {tok['prompt_tokens']} in / {tok['completion_tokens']} out "
+        f"({tok['calls']} calls)"
+    )
+    if cost is None:
+        renderer.warn(
+            f"No price for {config.provider}/{agent.provider.model} in price table."
+        )
+
+
 def repl(
     agent: Agent,
     renderer: Renderer,
@@ -537,6 +563,9 @@ def repl(
             except Exception:
                 pass
             continue
+        if line == "/cost":
+            _cmd_cost(agent, renderer, config)
+            continue
         if line == "/skills":
             if skill_loader is None:
                 renderer.info("Skills disabled (feature flag 'skill' is off).")
@@ -550,7 +579,7 @@ def repl(
         if line == "/help":
             renderer.info(
                 "Commands: /help /tools /flags /skills /cron [/cron <id> '<expr>' '<prompt>'] "
-                "/worktree /summary /clear /auto /mode /model <id> /todo /save /resume /exit"
+                "/worktree /summary /cost /clear /auto /mode /model <id> /todo /save /resume /exit"
             )
             continue
         if line == "/auto":

@@ -27,6 +27,7 @@ _DEFAULTS = {
     "workflow_scripts": False,
     "tool_search": True,
     "proactive": True,
+    "dangerous_command_guard": True,
 }
 
 _TRUTHY_ENV_VALUES = ("1", "true", "yes")

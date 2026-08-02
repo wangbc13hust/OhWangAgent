@@ -1,9 +1,35 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497 → 515 → 517（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497 → 515 → 517 → 533（全绿）。
 
 ---
+
+## 2026-08-02
+
+### 第一批能力补齐（Git 上下文 / 危险命令守卫 / /cost）
+
+对照 Claude Code 差距清单落地三项纯增量能力（明确不做第 4 项 tiktoken 精确计数）：
+
+- **Git 上下文注入**：新 `services/git_context.py` 采集分支 / 最近 5 条提交 / 工作区
+  状态，注入 `Agent._effective_system()`（基础 prompt 之后、todo 之前）。非仓库或任何
+  失败静默返回空串；TTL 5s 缓存（按 workdir）避免每轮重建重复 spawn git 子进程。
+- **危险命令模式检测**：新 `services/guards.py` 内置 pre_tool_use hook
+  `dangerous_command_hook`，纯规则阻断 `rm -rf /`、`rm -rf ~/$HOME`、`git push --force`、
+  `git reset --hard`、磁盘格式化、fork bomb、系统关机等破坏性命令（词边界 + 允许
+  子路径如 `rm -rf ./build` 防误伤）。默认开启（flag `dangerous_command_guard`，可
+  `OHWANG_FEATURE_dangerous_command_guard=0` 关闭）；阻断走既有 `Blocked by hook:`
+  路径，不改 agent 循环。
+- **/cost 美元成本估算**：新 `services/cost.py`（`PRICE_TABLE` 按 (provider, model)
+  记 USD/1M tokens，公开定价估算值可调优）+ cli 命令 `/cost`。用 provider 已归账的
+  usage 计算美元成本；价格未知显示 `unknown` 并提示；`/model` 切换后按当前模型计费。
+- **约束沉淀**：文件写入分块约束写入 `AGENTS.md` 与个人记忆（控制单次写入大小、
+  可分多次写，避免 file error）。
+
+### 测试
+
+533 个测试全绿（本轮 +16：git 上下文 4、guards 6、cost 6；另修正 test_gaps.py
+系统缓存断言为子串判断以兼容 Git 注入）。
 
 ## 2026-08-02
 

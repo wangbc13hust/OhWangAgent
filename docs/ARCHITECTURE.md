@@ -1,6 +1,6 @@
 # OhWangAgent 架构文档
 
-> 版本：v0.3.0 · 对应代码提交 `f741a5e`（2026-08-02 白领工作流实测批次见 §3.4/3.5/3.8，flags 真值大小写修复见 CHANGELOG）· 517 测试全绿
+> 版本：v0.3.0 · 对应代码提交 `ca4841e`（2026-08-02 第一批能力补齐批次：Git 上下文注入 / 危险命令模式检测 / /cost 见 §3.5/3.6/3.8；flags 真值大小写修复见 CHANGELOG）· 533 测试全绿
 > （覆盖率 91%，实测命令：`coverage run --source=ohwang -m pytest` + `coverage report --omit="ohwang/tui/widgets/*"`）
 >
 > 定位：交互式 CLI **办公 agent** —— 文档撰写、会议纪要、资料检索、任务管理、
@@ -165,7 +165,7 @@ ohwang/
 
 - `BaseProvider.chat(...)` 是唯一抽象接口，产出统一事件流字典
   `{"type": "text"|"tool_use", ...}`；基类持有 `usage_prompt/completion/calls`
-  计数器与 `usage_report()`，供 `/summary` 展示。
+  计数器与 `usage_report()`，供 `/summary`、`/cost` 展示。
 - `AnthropicProvider`：Anthropic 原生 tool_use 协议直通，从 `message_start`/
   `message_delta` 归账 token；默认开启 prompt caching（`system` 转 block 列表挂
   `cache_control`，末条消息末 content block 加断点，浅拷贝不污染调用方），
@@ -222,11 +222,14 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 | :--- | :--- | :--- |
 | `window` | `effective_context_window(config)`：解析有效上下文窗口，优先级 env `OHWANG_MAX_CONTEXT_TOKENS` > config > 默认 128K；压缩阈值由此派生 | — |
 | `tokens` | 本地 token 估算（拉丁 ~4 字符/token，CJK ~1 字符/token + 每消息/块开销），供压缩阈值与预算判断，非精确分词 | — |
+| `git_context` | 采集当前分支 / 最近 5 条提交 / 工作区状态，注入 `Agent._effective_system()`（非仓库或失败静默返回空串；TTL 5s 缓存防每轮重建重复 spawn git 子进程） | — |
 | `MemoryStore` | 分层持久记忆：项目层 `{workdir}` + 全局层 `~/.ohwang`（懒创建）；事实带 `type`（user/feedback/project/reference）；`render_context(query)` 空 query 注入每层最新 ≤30 条，带 query 按确定性相关性打分取 top-10（修复"注入最新 30 条"与双重头） | `CLAUDE.md`/`AGENTS.md` + `.ohwang/memory/facts.json`（+ `~/.ohwang/memory/facts.json`） |
 | `MemoryExtractor` | 会话增长 ≥20 条时让模型提炼事实自动入库；提取提示强制 4 类型分类并排除单会话临时内容（会议记录/一次性数据图表）；`type=user` 自动路由到全局层；游标 `extract_cursor.json` 跨会话持久化防重复提取 | `.ohwang/memory/facts.json` + `extract_cursor.json` |
 | `HookManager` | pre/post tool + notif 生命周期钩子 | `.ohwang/hooks.json` 命令钩子 |
+| `guards` | 内置安全守卫：pre_tool_use 规则阻断危险 shell 命令（`rm -rf /`、`git push --force`、磁盘格式化、fork bomb、系统关机等，词边界防误伤）；flag `dangerous_command_guard` 默认开启 | — |
 | `PolicyLimits` | 工具调用总量/单工具上限，防失控循环；构造默认 200，`policy.json` 存在但缺 `max_tool_calls` 键时 `load()` 回退 **1000**（两路径默认值分歧，见 PROJECT_REVIEW）；**被权限拒绝的调用也计入预算**（防拒绝后无限重试） | `.ohwang/policy.json` |
 | `UsageTracker` | 工具调用统计（`/summary`、brief 工具） | 内存 |
+| `cost` | `/cost` 美元成本估算：按 (provider, model) 价格表（USD/1M tokens）× provider 已归账 token（`usage_report()`）；未知模型返回 None 显示 `unknown` | — |
 | `Compactor` | 上下文压缩：阈值由 `context_window` 派生（显式 `threshold_tokens` 优先）；熔断（连续 3 次摘要失败 → snip 硬裁）；`is_prompt_too_long_error` 识别 PTL；`microcompact` 裁剪超限工具结果 | 阈值派生自 `services/window.py` |
 | `SessionStore` | 会话保存/resume（`save` 可带 `summary`；`/save` 经 `SessionSummarizer` 蒸馏简报，`/resume` 注入为 `# Session Context` 块） | `.ohwang/sessions/*.json` |
 | `SessionSummarizer` | 会话摘要蒸馏：复用 `Compactor._serialize` 转录、截断 80K 字符，LLM 失败静默返回 `""` | — |
@@ -252,8 +255,8 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   后 ∈ `("1","true","yes")` 即真（大小写不敏感，`TRUE`/`True`/`YES` 均生效，
   `f741a5e` 修复前仅小写三值生效）。默认开启 web_fetch/web_search/web_browser/
   ask_user/agent_tool/mcp/skill/memory/todo/plan_mode/compact/session/worktree/
-  tool_search/proactive；默认关闭 lsp/plugin/coordinator/agent_swarms/
-  workflow_scripts。
+  tool_search/proactive/dangerous_command_guard；默认关闭 lsp/plugin/coordinator/
+  agent_swarms/workflow_scripts。
 - `settings.py`：`.ohwang/settings.json` 权限规则读写（`config` 工具可运行时改）。
 
 ### 3.7 渲染与编码（`ohwang/tui/render.py`）
@@ -318,7 +321,7 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 
 ---
 
-## 6. 测试架构（`tests/`，50 个文件 / 517 个用例，覆盖率 91%）
+## 6. 测试架构（`tests/`，53 个文件 / 533 个用例，覆盖率 91%）
 
 - `helpers.py`：`ScriptedProvider`（重放事件序列）、`MockSearchProvider`、
   `build_agent()`——无网络、无真实模型的集成测试基座。
@@ -336,7 +339,8 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   `test_microcompact.py`（窗口派生阈值/熔断/PTL 匹配/microcompact）；
   分层记忆批次新增 `test_memory_layers.py`、`test_memory_extract.py`、
   `test_session.py`；`test_flags.py` 追加 2 个 env 真值大小写用例
-  （`f741a5e` 修复回归）。
+  （`f741a5e` 修复回归）；第一批能力补齐新增 `test_git_context.py`、
+  `test_guards.py`、`test_cost.py`（Git 注入/危险命令守卫//cost）。
 - 覆盖率 91%（`coverage run --source=ohwang -m pytest` 后
   `coverage report --omit="ohwang/tui/widgets/*"` 实测；按模块补齐：
   `test_providers.py`、`test_mcp.py`、`test_browser.py`、`test_lsp.py`、
