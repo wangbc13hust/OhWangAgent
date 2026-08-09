@@ -110,7 +110,8 @@ ohwang/
 │   ├── window.py          上下文窗口解析（env OHWANG_MAX_CONTEXT_TOKENS > config > preset > 默认）
 │   ├── compact.py         上下文压缩（阈值由窗口派生）、reactive 压缩辅助、熔断硬裁、microcompact
 │   ├── tokens.py          token 计数（tiktoken 精确 / 离线回退启发式，支持 model= 透传）
-│   ├── session.py         会话保存/resume（.ohwang/sessions/）
+│   ├── session.py         会话保存/resume/update（.ohwang/sessions/）
+│   ├── server.py          localhost daemon（ohwang serve）：/health、POST /run、POST /stream(SSE)
 │   ├── summarizer.py      会话摘要蒸馏（/save 时生成，复用 Compactor 序列化）
 │   ├── settings.py        权限规则文件读写
 │   ├── meeting_notes.py   会议纪要文件名推导（确定性落盘路径，配合 prompts 契约）
@@ -249,7 +250,8 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 | `UsageTracker` | 工具调用统计（`/summary`、brief 工具） | 内存 |
 | `cost` | `/cost` 美元成本估算：按 (provider, model) 价格表（USD/1M tokens）× provider 已归账 token（`usage_report()`）；未知模型返回 None 显示 `unknown` | — |
 | `Compactor` | 上下文压缩：阈值由 `context_window` 派生（显式 `threshold_tokens` 优先）；熔断（连续 3 次摘要失败 → snip 硬裁）；`is_prompt_too_long_error` 识别 PTL；`microcompact` 裁剪超限工具结果 | 阈值派生自 `services/window.py` |
-| `SessionStore` | 会话保存/resume（`save` 可带 `summary`；`/save` 经 `SessionSummarizer` 蒸馏简报，`/resume` 注入为 `# Session Context` 块） | `.ohwang/sessions/*.json` |
+| `SessionStore` | 会话保存/resume（`save` 可带 `summary`；`update` 覆盖保留原 id；`/save` 经 `SessionSummarizer` 蒸馏简报，`/resume` 注入为 `# Session Context` 块） | `.ohwang/sessions/*.json` |
+| `server` | localhost HTTP daemon（`ohwang serve`）：`ThreadingHTTPServer` 路由 `/health`（不拿锁直接 ready）/ `POST /run`（同步单飞）/ `POST /stream`（SSE，五回调→事件流，`done` 带 session_id）；所有 run 与 REPL、cron 共用同一 `run_lock`，`agent.messages` 变更与快照均在锁内；run 后置镜像 `_run_once`（`MemoryExtractor.maybe_extract` + `SessionStore.save`/`update`）；SIGINT/SIGTERM 优雅关闭（停接新连接→在跑 run 完成→端口释放）；零新增三方依赖 | `.ohwang/sessions/*.json`（经 SessionStore） |
 | `SessionSummarizer` | 会话摘要蒸馏：复用 `Compactor._serialize` 转录、截断 80K 字符，LLM 失败静默返回 `""` | — |
 | `settings` | `.ohwang/settings.json` 权限规则 CRUD（allow/ask/deny glob 列表，幂等追加，无内存缓存） | `.ohwang/settings.json` |
 | `meeting_notes` | 会议纪要文件名推导：`slugify_topic`（保留 CJK/字母数字、其余压成 `-`、清路径分隔符）、`meeting_filename(date, topic)` → `docs/meetings/<date>-<topic>.md`；与 `prompts.MEETING_NOTES_GUIDE` 契约共用命名规则（日期取材料明示/暗示值，缺省当前日期） | — |
@@ -296,9 +298,13 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   再兜底 `abspath(args.workdir or cwd)`。
 - 非交互一次性任务（`-p`）且未给 `-y`/`--plan` 时，stderr 打印提示（非交互
   stdin 下 ask 工具默认 deny，可能让工具全部被拒）。
-- `build_agent(args, run_lock)`：**`main` 传入唯一 `run_lock`**，REPL 前台与
-  cron 调度后台共用，避免并发 `run()` 污染 `messages`；`scheduler.start()` 在
-  `agent` 装配完成后才调用。
+- `build_agent(args, run_lock)`：**`main` 传入唯一 `run_lock`**，REPL 前台、
+  cron 调度后台与 `serve` daemon 三路共用，避免并发 `run()` 污染 `messages`；
+  `scheduler.start()` 在 `agent` 装配完成后才调用。
+- `serve` 子命令：position 首 token 为 `"serve"` 时进入 daemon 模式（`--host`
+  默认 127.0.0.1 / `--port` 默认 8237），复用 `build_agent` 组装结果，把五个
+  回调绑到 HTTP/SSE 而非 TTY 渲染器；`run_server` 阻塞主线程直到 SIGINT/SIGTERM
+  优雅关闭。
 - 装配顺序：Config.resolve → create_provider → Renderer → FeatureFlags →
   PermissionManager（mode 由 `--plan`/`-y` 推导）→ TodoStore/TaskStore/Usage/
   MemoryStore/MemoryExtractor → SessionSummarizer → SkillLoader → system_prompt →
@@ -357,7 +363,7 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
 
 ---
 
-## 6. 测试架构（`tests/`，53 个文件 / 559 个用例，覆盖率 91%）
+## 6. 测试架构（`tests/`，54 个文件 / 585 个用例，覆盖率 91%）
 
 - `helpers.py`：`ScriptedProvider`（重放事件序列）、`MockSearchProvider`、
   `build_agent()`——无网络、无真实模型的集成测试基座。
@@ -385,7 +391,10 @@ agent / worktree / cron / browser / web_search 仅在传入对应依赖时注册
   追加 `tool_output` 前缀 escape/长行截断/partial 缓冲/端流冲刷 + `progress` 一行，
   `test_agent_loop.py` 追加 `agent.run(on_turn=...)` 每轮递增回调；
   工程债务批次 `test_cli.py` 追加 `test_build_agent_assembly_smoke_with_cron_background_fire`
-  （装配冒烟：proactive 调度装配期间启动 + cron 后台经共享 run_lock 触发不炸）。
+  （装配冒烟：proactive 调度装配期间启动 + cron 后台经共享 run_lock 触发不炸）；
+  server 批次新增 `test_server.py`（12 例：/health + 仅回环绑定 / 单飞排队 /
+  会话创建/续传/未知 404 / SSE 事件顺序 + tool_result is_error + turn 进度 /
+  后置记忆提取 / 优雅关闭端口释放 + 在跑 run 完成）。
 - 覆盖率 91%（`coverage run --source=ohwang -m pytest` 后
   `coverage report --omit="ohwang/tui/widgets/*"` 实测；按模块补齐：
   `test_providers.py`、`test_mcp.py`、`test_browser.py`、`test_lsp.py`、

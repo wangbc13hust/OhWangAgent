@@ -27,6 +27,7 @@ from .services import (
 from .services.cost import calculate_cost, format_cost
 from .services.guards import dangerous_command_hook
 from .services.scheduler import Scheduler
+from .services.server import DEFAULT_HOST, DEFAULT_PORT
 from .services.settings import load_settings
 from .services.window import effective_context_window
 from .tools import default_tools
@@ -171,7 +172,22 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="Do not start the proactive cron scheduler",
     )
     p.add_argument(
-        "prompt", nargs="?", default=None, help="Run one prompt then exit (non-REPL)"
+        "--host",
+        default=DEFAULT_HOST,
+        help=f"Host to bind for `ohwang serve` (default {DEFAULT_HOST})",
+    )
+    p.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Port for `ohwang serve` (default {DEFAULT_PORT})",
+    )
+    p.add_argument(
+        "prompt",
+        nargs="?",
+        default=None,
+        help='Run one prompt then exit (non-REPL); the special first token "serve" '
+        "starts the localhost daemon instead",
     )
     return p.parse_args(argv)
 
@@ -679,6 +695,9 @@ def main(argv=None) -> int:
     setup_utf8()
     args = parse_args(argv)
     _prepare_workdir(args)
+    serving = args.prompt == "serve"
+    if serving:
+        args.prompt = None
     _warn_noninteractive_approval(args)
     _load_env(os.getcwd())
     run_lock = Lock()
@@ -694,6 +713,22 @@ def main(argv=None) -> int:
         session_summarizer,
     ) = build_agent(args, run_lock)
     try:
+        if serving:
+            from .services.server import run_server
+
+            renderer.info(
+                f"OhWangAgent serve — http://{args.host}:{args.port} "
+                "(Ctrl-C to stop)"
+            )
+            run_server(
+                agent,
+                run_lock,
+                session_store,
+                memory_extractor,
+                host=args.host,
+                port=args.port,
+            )
+            return 0
         repl(
             agent,
             renderer,

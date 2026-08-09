@@ -50,6 +50,29 @@ class SessionStore:
         )
         return sid
 
+    def update(
+        self, sid: str, messages: list[dict], preview: str = "", summary: str = ""
+    ) -> bool:
+        """Overwrite an existing session, keeping its id.
+
+        Lets a resumed conversation stay under the same session id instead of
+        spawning a new timestamped file on every turn. Returns False when the
+        session does not exist (caller falls back to a fresh save).
+        """
+        path = self.dir / f"{sid}.json"
+        if not path.exists():
+            return False
+        data = {
+            "mtime": time.time(),
+            "preview": preview,
+            "summary": summary,
+            "messages": messages,
+        }
+        path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return True
+
     def load(self, sid: str) -> list[dict] | None:
         data = self.load_full(sid)
         return data.get("messages") if data is not None else None

@@ -1,7 +1,44 @@
 # OhWangAgent 变更日志
 
 > 按日期倒序记录开发进度、问题修复与办公场景验证。
-> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497 → 515 → 517 → 533 → 549 → 559 → 560 → 564 → 573（全绿）。
+> 测试规模演进：180 → 212 → 222 → 224 → 232 → 239 → 244 → 250 → 371 → 387 → 390 → 395 → 404 → 410 → 412 → 420 → 432 → 450 → 464 → 474 → 497 → 515 → 517 → 533 → 549 → 559 → 560 → 564 → 573 → 585（全绿）。
+
+---
+
+## 2026-08-07
+
+### server 服务层（`ohwang serve` localhost daemon）
+
+按 OpenSpec change `openspec/changes/server` 实现「个人办公助手」双前端地基——
+把 agent 的渲染器缝隙暴露成 HTTP 传输层，同一内核同时服务终端与网页：
+
+- **`ohwang/cli.py` `serve` 子命令**：position 首 token 为 `"serve"` 时进入
+  daemon 模式（`--host` 默认 127.0.0.1、`--port` 默认 8237），复用
+  `build_agent(args, run_lock)` 组装结果，将五回调绑到 HTTP/SSE 而非 TTY。
+- **`ohwang/services/server.py`**（新增，零三方依赖）：`ThreadingHTTPServer`
+  路由三端点——
+  - `GET /health`：不拿锁直接返回 ready（长 run 期间保持可响应）。
+  - `POST /run`：body `{message, session_id?}`，`with run_lock: agent.run(...)`，
+    同步单飞，返回 `{session_id, final_text}`。
+  - `POST /stream`：SSE 把五回调（on_text / on_tool_call / on_tool_result /
+    on_compact / on_turn）写成 `text` / `tool_call` / `tool_result`（带
+    `tool` + `is_error`）/ `compact` / `turn` 事件，结束发 `done`（携带
+    session_id），异常发 `error`。
+- **单飞并发**：REPL、cron、serve 三路共用同一把 `run_lock`；`agent.messages`
+  的全部变更（新建清空 / 续传装载 / run 快照）都在锁内，防并发损坏。
+- **会话**：复用 `SessionStore`；`SessionStore` 新增 `update()` 覆盖保留原 id，
+  使续传会话始终落在同一 id 下（而非每次 save 生成新时间戳 id）。
+- **run 后置镜像 `_run_once`**：`MemoryExtractor.maybe_extract`（失败静默）+
+  `SessionStore.save`/`update`（对话必须持久化，server 新增的一步）。
+- **优雅关闭**：SIGINT/SIGTERM → 停止接收新连接 → 在跑 run 锁内跑完 →
+  端口释放；`_drain_active` 等待在飞请求完成。
+
+### 测试
+
+585 个测试全绿（本轮 +12：`test_server.py`——/health + 仅回环绑定、单飞排队、
+会话创建/续传/未知 404、SSE 事件顺序 + tool_result is_error + turn 进度、后置
+记忆提取、优雅关闭端口释放 + 在跑 run 完成）。全本机回环、脚本化 provider，
+无网络无真实模型。
 
 ---
 
